@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TeleCLI - Terminal</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🖥️ TeleCLI</h1>
+            <p>Web-based Terminal Interface</p>
+        </header>
+        
+        <div class="terminal">
+            <div class="terminal-output" id="output"></div>
+            <div class="terminal-input">
+                <input 
+                    type="text" 
+                    id="command-input" 
+                    placeholder="Enter command..."
+                    autofocus
+                >
+                <button id="send-btn" onclick="sendCommand()">Send</button>
+                <button id="reset-btn" onclick="resetSession()">Reset</button>
+            </div>
+        </div>
+        
+        <footer>
+            <div id="status">Connecting...</div>
+            <div id="stats"></div>
+        </footer>
+    </div>
+
+    <script>
+        const clientId = 'web-' + Math.random().toString(36).substr(2, 9);
+        let ws = null;
+        let isConnected = false;
+
+        function getWebSocketUrl() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            return `${protocol}//${window.location.host}/ws/${clientId}`;
+        }
+
+        function connectWebSocket() {
+            try {
+                ws = new WebSocket(getWebSocketUrl());
+                
+                ws.onopen = () => {
+                    isConnected = true;
+                    updateStatus('Connected', 'success');
+                    addOutput('system', 'Connected to server');
+                };
+                
+                ws.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        addOutput(data.type || 'assistant', data.message);
+                    } catch (e) {
+                        addOutput('error', 'Error parsing response');
+                    }
+                };
+                
+                ws.onerror = (error) => {
+                    updateStatus('Error', 'error');
+                    addOutput('error', 'WebSocket error');
+                };
+                
+                ws.onclose = () => {
+                    isConnected = false;
+                    updateStatus('Disconnected - Reconnecting...', 'warning');
+                    setTimeout(connectWebSocket, 3000);
+                };
+            } catch (e) {
+                updateStatus('Connection failed', 'error');
+            }
+        }
+
+        function sendCommand() {
+            const input = document.getElementById('command-input');
+            const command = input.value.trim();
+            
+            if (!command) return;
+            if (!isConnected) {
+                addOutput('error', 'Not connected to server');
+                return;
+            }
+            
+            // Add to output
+            addOutput('user', command);
+            
+            // Send to server
+            try {
+                ws.send(JSON.stringify({ message: command }));
+            } catch (e) {
+                addOutput('error', 'Failed to send command');
+            }
+            
+            // Clear input
+            input.value = '';
+            input.focus();
+        }
+
+        function resetSession() {
+            if (confirm('Reset your terminal session?')) {
+                fetch(`/reset/${clientId}`, { method: 'POST' })
+                    .then(r => r.json())
+                    .then(data => {
+                        addOutput('system', 'Session reset');
+                        document.getElementById('output').innerHTML = '';
+                    })
+                    .catch(e => addOutput('error', 'Failed to reset'));
+            }
+        }
+
+        function addOutput(type, message) {
+            const output = document.getElementById('output');
+            const line = document.createElement('div');
+            line.className = `output-line type-${type}`;
+            
+            if (type === 'user') {
+                line.innerHTML = `<span class="prompt">$ </span><span class="command">${escapeHtml(message)}</span>`;
+            } else if (type === 'system') {
+                line.innerHTML = `<span class="system">${escapeHtml(message)}</span>`;
+            } else if (type === 'error') {
+                line.innerHTML = `<span class="error">❌ ${escapeHtml(message)}</span>`;
+            } else {
+                line.innerHTML = `<pre>${escapeHtml(message)}</pre>`;
+            }
+            
+            output.appendChild(line);
+            output.scrollTop = output.scrollHeight;
+        }
+
+        function updateStatus(text, type) {
+            const status = document.getElementById('status');
+            status.textContent = text;
+            status.className = `status-${type}`;
+            
+            // Fetch stats
+            fetch('/stats')
+                .then(r => r.json())
+                .then(data => {
+                    const stats = document.getElementById('stats');
+                    stats.textContent = `Sessions: ${data.active_sessions}/${data.max_sessions}`;
+                });
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Connect to WebSocket
+        connectWebSocket();
+
+        // Send on Enter key
+        document.getElementById('command-input').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendCommand();
+            }
+        });
+    </script>
+</body>
+</html>
