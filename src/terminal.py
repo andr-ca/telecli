@@ -3,31 +3,84 @@ Pexpect-based terminal wrapper for interactive terminal sessions
 """
 import pexpect
 import logging
-from typing import Optional, Tuple
+import asyncio
+import re
+from typing import Optional, AsyncIterator
 from src.config import Config
 
 logger = logging.getLogger(__name__)
 
+# Only remove bell character and a few problematic control codes
+# Keep ANSI codes for colors/formatting (needed for interactive tools like claude)
+CONTROL_CHARS_TO_REMOVE = re.compile(r'[\x07]')  # Only bell (0x07)
+
 
 class TerminalSession:
-    """Manages a single interactive terminal session with pexpect"""
+    """Manages a single interactive terminal session with bidirectional streaming"""
 
     def __init__(self, session_id: str, shell: Optional[str] = None):
         self.session_id = session_id
         self.shell = shell or Config.TERMINAL_SHELL
         self.process: Optional[pexpect.spawn] = None
         self.is_active = False
+        self.output_queue: asyncio.Queue = asyncio.Queue()
+        self.read_task: Optional[asyncio.Task] = None
+
+    def _clean_output(self, text: str) -> str:
+        """Clean terminal output - minimal cleaning to preserve interactive tools"""
+        # Only remove bell character
+        text = CONTROL_CHARS_TO_REMOVE.sub('', text)
+        # Keep \r for interactive tools (they use it for in-place updates)
+        # Just ensure we don't have \r\n followed by extra \n
+        return text
+
+    async def _read_loop(self):
+        """Background task that continuously reads from terminal and queues output"""
+        logger.info(f"Starting read loop for session {self.session_id}")
+        try:
+            while self.is_active and self.process:
+                try:
+                    # Read output in non-blocking mode with short timeout
+                    chunk = self.process.read_nonblocking(size=1024, timeout=0.1)
+                    if chunk:
+                        # Clean the output
+                        cleaned_chunk = self._clean_output(chunk)
+                        if cleaned_chunk:  # Only queue if there's content after cleaning
+                            logger.debug(f"Read {len(cleaned_chunk)} bytes from session {self.session_id}")
+                            await self.output_queue.put(cleaned_chunk)
+                except pexpect.TIMEOUT:
+                    # No data available, continue
+                    await asyncio.sleep(0.05)  # Small delay to avoid busy loop
+                except pexpect.EOF:
+                    logger.warning(f"EOF reached in session {self.session_id}")
+                    self.is_active = False
+                    await self.output_queue.put(None)  # Signal end of stream
+                    break
+                except Exception as e:
+                    logger.error(f"Error reading from session {self.session_id}: {e}")
+                    break
+        finally:
+            logger.info(f"Read loop ended for session {self.session_id}")
+            await self.output_queue.put(None)  # Signal end of stream
 
     async def start(self) -> bool:
-        """Start a terminal session"""
+        """Start a terminal session with background output reading"""
         try:
             # Spawn a shell process
-            self.process = pexpect.spawn(self.shell, encoding=Config.TERMINAL_ENCODING, timeout=Config.TERMINAL_TIMEOUT)
+            self.process = pexpect.spawn(
+                self.shell, 
+                encoding=Config.TERMINAL_ENCODING,
+                timeout=None  # No timeout for continuous reading
+            )
             
             # Set up terminal size for proper rendering
             self.process.setwinsize(24, 80)
             
             self.is_active = True
+            
+            # Start background read loop
+            self.read_task = asyncio.create_task(self._read_loop())
+            
             logger.info(f"Started terminal session {self.session_id} with shell: {self.shell}")
             return True
         except Exception as e:
@@ -35,107 +88,86 @@ class TerminalSession:
             self.is_active = False
             return False
 
-    async def send_command(self, command: str) -> str:
-        """
-        Send a command and return output
-        """
-        if not self.is_active or not self.process:
-            raise RuntimeError("Session is not active")
-
+    async def get_output_stream(self) -> AsyncIterator[str]:
+        """Async generator that yields output as it becomes available"""
+        logger.debug(f"Starting output stream for session {self.session_id}")
         try:
-            # Send the command
-            self.process.sendline(command)
-            
-            # Wait for command to complete
-            # Try to match command echo or prompt
-            try:
-                self.process.expect([pexpect.TIMEOUT, pexpect.EOF], timeout=Config.TERMINAL_TIMEOUT)
-            except pexpect.TIMEOUT:
-                logger.warning(f"Command timed out in session {self.session_id}")
-                pass  # Timeout is ok, we'll return what we have
-            except pexpect.EOF:
-                logger.warning(f"Process ended unexpectedly in session {self.session_id}")
-
-            # Get all output
-            output = self.process.before if self.process.before else ""
-            
-            logger.debug(f"Command output in session {self.session_id}: {output[:100]}...")
-            return output
+            while True:
+                chunk = await self.output_queue.get()
+                if chunk is None:  # End of stream
+                    logger.debug(f"End of output stream for session {self.session_id}")
+                    break
+                yield chunk
         except Exception as e:
-            logger.error(f"Error sending command in session {self.session_id}: {e}")
-            raise RuntimeError(f"Failed to execute command: {str(e)}")
+            logger.error(f"Error in output stream for session {self.session_id}: {e}")
+            raise
 
-    async def read_output(self, timeout: Optional[int] = None) -> str:
-        """
-        Read available output from terminal without sending command
-        """
+    async def resize(self, rows: int, cols: int) -> None:
+        """Resize the terminal window"""
         if not self.is_active or not self.process:
-            raise RuntimeError("Session is not active")
-
+            return
+        
         try:
-            timeout = timeout or Config.TERMINAL_TIMEOUT
-            output = ""
-            
-            try:
-                self.process.expect([pexpect.TIMEOUT, pexpect.EOF], timeout=timeout)
-            except (pexpect.TIMEOUT, pexpect.EOF):
-                pass  # Expected behavior
-            
-            if self.process.before:
-                output = self.process.before
-            
-            return output
+            self.process.setwinsize(rows, cols)
+            logger.debug(f"Resized terminal {self.session_id} to {rows}x{cols}")
         except Exception as e:
-            logger.error(f"Error reading output in session {self.session_id}: {e}")
-            raise RuntimeError(f"Failed to read output: {str(e)}")
+            logger.error(f"Error resizing terminal {self.session_id}: {e}")
 
     async def send_input(self, text: str, newline: bool = True) -> None:
         """
-        Send raw input without waiting for response
+        Send input to the terminal immediately
+        Supports special control characters like Ctrl+C
         """
         if not self.is_active or not self.process:
             raise RuntimeError("Session is not active")
 
         try:
-            if newline:
-                self.process.sendline(text)
+            # Handle special control sequences
+            if text == "\x03":  # Ctrl+C
+                self.process.sendintr()
+                logger.info(f"Sent Ctrl+C to session {self.session_id}")
+            elif text == "\x04":  # Ctrl+D
+                self.process.sendeof()
+                logger.info(f"Sent Ctrl+D to session {self.session_id}")
             else:
-                self.process.send(text)
-            logger.debug(f"Sent input in session {self.session_id}: {text[:50]}...")
+                if newline:
+                    self.process.sendline(text)
+                else:
+                    self.process.send(text)
+                logger.debug(f"Sent input to session {self.session_id}: {text[:50]}...")
         except Exception as e:
-            logger.error(f"Error sending input in session {self.session_id}: {e}")
+            logger.error(f"Error sending input to session {self.session_id}: {e}")
             raise RuntimeError(f"Failed to send input: {str(e)}")
 
-    async def is_responsive(self) -> bool:
-        """Check if terminal is still responsive"""
-        if not self.is_active or not self.process:
-            return False
-
-        try:
-            # Try to get a simple response
-            self.process.sendline("echo 'ALIVE'")
-            self.process.expect("ALIVE", timeout=2)
-            return True
-        except Exception:
-            return False
-
     async def stop(self) -> None:
-        """Stop the terminal session"""
+        """Stop the terminal session and cleanup"""
+        logger.info(f"Stopping terminal session {self.session_id}")
+        self.is_active = False
+        
+        # Cancel read task
+        if self.read_task and not self.read_task.done():
+            self.read_task.cancel()
+            try:
+                await self.read_task
+            except asyncio.CancelledError:
+                pass
+        
+        # Terminate process
         try:
             if self.process:
                 try:
                     self.process.terminate()
+                    await asyncio.sleep(0.1)
                 except Exception:
                     pass
                 
                 try:
-                    self.process.kill(signal=9)
+                    self.process.kill(9)
                 except Exception:
                     pass
         except Exception as e:
             logger.error(f"Error stopping session {self.session_id}: {e}")
         finally:
-            self.is_active = False
             logger.info(f"Stopped terminal session {self.session_id}")
 
     async def __aenter__(self):

@@ -5,27 +5,61 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TeleCLI - Terminal</title>
     <link rel="stylesheet" href="style.css">
+    <!-- xterm.js for full terminal emulation -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css" />
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
 </head>
 <body>
     <div class="container">
         <header>
             <h1>🖥️ TeleCLI</h1>
             <p>Web-based Terminal Interface</p>
+            <div class="controls">
+                <button id="ai-proxy-btn" onclick="toggleAIProxy()" style="background-color: #9b59b6; color: white; padding: 5px 15px; border: none; border-radius: 3px; cursor: pointer;">🤖 AI Proxy: OFF</button>
+                <button id="ctrl-c-btn" onclick="sendCtrlC()" style="background-color: #e74c3c; color: white; padding: 5px 15px; border: none; border-radius: 3px; cursor: pointer; margin-left: 10px;">Ctrl+C</button>
+                <button id="reset-btn" onclick="resetSession()" style="background-color: #95a5a6; color: white; padding: 5px 15px; border: none; border-radius: 3px; cursor: pointer; margin-left: 10px;">Reset</button>
+            </div>
+            <div id="proxy-status" style="margin-top: 10px; font-size: 12px; color: #b0b0b0;"></div>
         </header>
         
-        <div class="terminal">
-            <div class="terminal-output" id="output"></div>
-            <div class="terminal-input">
-                <input 
-                    type="text" 
-                    id="command-input" 
-                    placeholder="Enter command..."
-                    autofocus
-                >
-                <button id="send-btn" onclick="sendCommand()">Send</button>
-                <button id="reset-btn" onclick="resetSession()">Reset</button>
+        <!-- AI Proxy Settings Modal -->
+        <div id="proxy-settings-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 1000; align-items: center; justify-content: center;">
+            <div style="background: #2a2a2a; padding: 30px; border-radius: 10px; max-width: 600px; width: 90%;">
+                <h2 style="margin-top: 0; color: #fff;">🤖 AI Proxy Settings</h2>
+                
+                <div style="margin: 20px 0;">
+                    <label style="display: block; margin-bottom: 5px; color: #b0b0b0; font-weight: bold;">System Prompt:</label>
+                    <textarea id="system-prompt-input" 
+                              style="width: 100%; height: 120px; padding: 10px; background: #1a1a1a; color: #e0e0e0; border: 1px solid #667eea; border-radius: 5px; font-family: monospace; font-size: 13px; resize: vertical;"
+                              placeholder="You are helping automate terminal interactions..."></textarea>
+                    <small style="color: #7f8c8d;">This sets the AI's role and behavior. Be specific about what kind of responses you want.</small>
+                </div>
+                
+                <div style="margin: 20px 0;">
+                    <label style="display: block; margin-bottom: 5px; color: #b0b0b0; font-weight: bold;">Additional Context (Optional):</label>
+                    <textarea id="context-input" 
+                              style="width: 100%; height: 80px; padding: 10px; background: #1a1a1a; color: #e0e0e0; border: 1px solid #667eea; border-radius: 5px; font-family: monospace; font-size: 13px; resize: vertical;"
+                              placeholder="e.g., Working on a Python web app, focus on FastAPI patterns..."></textarea>
+                    <small style="color: #7f8c8d;">Add project-specific context that will be prepended to the system prompt.</small>
+                </div>
+                
+                <div style="margin: 20px 0;">
+                    <label style="display: block; margin-bottom: 5px; color: #b0b0b0; font-weight: bold;">Provider:</label>
+                    <select id="provider-select" style="width: 100%; padding: 10px; background: #1a1a1a; color: #e0e0e0; border: 1px solid #667eea; border-radius: 5px; font-size: 14px;">
+                        <option value="gemini-cli">Gemini CLI</option>
+                        <option value="claude-cli">Claude CLI</option>
+                    </select>
+                </div>
+                
+                <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 25px;">
+                    <button onclick="closeProxySettings()" style="padding: 10px 20px; background: #95a5a6; color: white; border: none; border-radius: 5px; cursor: pointer;">Cancel</button>
+                    <button onclick="applyProxySettings()" style="padding: 10px 20px; background: #27ae60; color: white; border: none; border-radius: 5px; cursor: pointer;">Enable AI Proxy</button>
+                </div>
             </div>
         </div>
+        
+        <div class="terminal" id="terminal-container"></div>
         
         <footer>
             <div id="status">Connecting...</div>
@@ -37,6 +71,63 @@
         const clientId = 'web-' + Math.random().toString(36).substr(2, 9);
         let ws = null;
         let isConnected = false;
+        let term = null;
+        let fitAddon = null;
+        let aiProxyEnabled = false;
+        let systemPrompt = "You are helping automate terminal interactions. Provide brief, direct responses.";
+        let additionalContext = "";
+
+        function initTerminal() {
+            // Create xterm.js terminal
+            term = new Terminal({
+                cursorBlink: true,
+                fontSize: 14,
+                fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+                theme: {
+                    background: '#1e1e1e',
+                    foreground: '#ffffff',
+                    cursor: '#ffffff'
+                },
+                rows: 30,
+                cols: 100
+            });
+            
+            // Add fit addon for responsive sizing
+            fitAddon = new FitAddon.FitAddon();
+            term.loadAddon(fitAddon);
+            
+            // Open terminal in container
+            term.open(document.getElementById('terminal-container'));
+            fitAddon.fit();
+            
+            // Send initial terminal size
+            sendTerminalSize();
+            
+            // Handle terminal input
+            term.onData((data) => {
+                if (isConnected && ws) {
+                    ws.send(JSON.stringify({ input: data }));
+                }
+            });
+            
+            // Handle window resize
+            window.addEventListener('resize', () => {
+                if (fitAddon) {
+                    fitAddon.fit();
+                    sendTerminalSize();
+                }
+            });
+        }
+
+        function sendTerminalSize() {
+            if (term && ws && isConnected) {
+                const rows = term.rows;
+                const cols = term.cols;
+                ws.send(JSON.stringify({ 
+                    resize: { rows: rows, cols: cols } 
+                }));
+            }
+        }
 
         function getWebSocketUrl() {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -50,21 +141,26 @@
                 ws.onopen = () => {
                     isConnected = true;
                     updateStatus('Connected', 'success');
-                    addOutput('system', 'Connected to server');
                 };
                 
                 ws.onmessage = (event) => {
                     try {
                         const data = JSON.parse(event.data);
-                        addOutput(data.type || 'assistant', data.message);
+                        if (data.output && term) {
+                            // Write output directly to xterm
+                            term.write(data.output);
+                        } else if (data.error) {
+                            term.write('\r\n\x1b[31mError: ' + data.error + '\x1b[0m\r\n');
+                        } else if (data.proxy_status) {
+                            updateProxyStatus(data.proxy_status);
+                        }
                     } catch (e) {
-                        addOutput('error', 'Error parsing response');
+                        console.error('Error parsing message:', e);
                     }
                 };
                 
                 ws.onerror = (error) => {
                     updateStatus('Error', 'error');
-                    addOutput('error', 'WebSocket error');
                 };
                 
                 ws.onclose = () => {
@@ -77,29 +173,83 @@
             }
         }
 
-        function sendCommand() {
-            const input = document.getElementById('command-input');
-            const command = input.value.trim();
-            
-            if (!command) return;
+        function toggleAIProxy() {
             if (!isConnected) {
-                addOutput('error', 'Not connected to server');
                 return;
             }
             
-            // Add to output
-            addOutput('user', command);
+            if (aiProxyEnabled) {
+                // Disable AI proxy
+                aiProxyEnabled = false;
+                ws.send(JSON.stringify({ proxy: { disable: true } }));
+                document.getElementById('ai-proxy-btn').style.backgroundColor = '#9b59b6';
+                document.getElementById('ai-proxy-btn').textContent = '🤖 AI Proxy: OFF';
+                document.getElementById('proxy-status').textContent = '';
+            } else {
+                // Show settings modal
+                openProxySettings();
+            }
+        }
+        
+        function openProxySettings() {
+            // Pre-fill with current values
+            document.getElementById('system-prompt-input').value = systemPrompt;
+            document.getElementById('context-input').value = additionalContext;
+            document.getElementById('proxy-settings-modal').style.display = 'flex';
+        }
+        
+        function closeProxySettings() {
+            document.getElementById('proxy-settings-modal').style.display = 'none';
+        }
+        
+        function applyProxySettings() {
+            // Get values from form
+            systemPrompt = document.getElementById('system-prompt-input').value.trim();
+            additionalContext = document.getElementById('context-input').value.trim();
+            const provider = document.getElementById('provider-select').value;
             
-            // Send to server
-            try {
-                ws.send(JSON.stringify({ message: command }));
-            } catch (e) {
-                addOutput('error', 'Failed to send command');
+            // Build full prompt with context
+            let fullPrompt = systemPrompt;
+            if (additionalContext) {
+                fullPrompt = `Context: ${additionalContext}\n\n${systemPrompt}`;
             }
             
-            // Clear input
-            input.value = '';
-            input.focus();
+            // Enable AI proxy with custom prompt
+            aiProxyEnabled = true;
+            ws.send(JSON.stringify({ 
+                proxy: { 
+                    enable: true, 
+                    provider: provider,
+                    system_prompt: fullPrompt
+                } 
+            }));
+            
+            document.getElementById('ai-proxy-btn').style.backgroundColor = '#27ae60';
+            document.getElementById('ai-proxy-btn').textContent = '🤖 AI Proxy: ON';
+            closeProxySettings();
+        }
+
+        function updateProxyStatus(status) {
+            if (status.enabled) {
+                const statusText = `AI: ${status.provider} | Iterations: ${status.iterations}/${status.max_iterations}`;
+                document.getElementById('proxy-status').textContent = statusText;
+                document.getElementById('proxy-status').style.color = '#27ae60';
+            } else {
+                document.getElementById('proxy-status').textContent = '';
+            }
+        }
+
+        function sendCtrlC() {
+            if (!isConnected) {
+                return;
+            }
+            
+            // Send Ctrl+C (ASCII 0x03)
+            try {
+                ws.send(JSON.stringify({ input: '\x03' }));
+            } catch (e) {
+                console.error('Failed to send Ctrl+C');
+            }
         }
 
         function resetSession() {
@@ -107,31 +257,14 @@
                 fetch(`/reset/${clientId}`, { method: 'POST' })
                     .then(r => r.json())
                     .then(data => {
-                        addOutput('system', 'Session reset');
-                        document.getElementById('output').innerHTML = '';
+                        if (term) term.clear();
+                        ws.close();
+                        setTimeout(() => connectWebSocket(), 500);
                     })
-                    .catch(e => addOutput('error', 'Failed to reset'));
+                    .catch(e => console.error('Failed to reset'));
             }
         }
 
-        function addOutput(type, message) {
-            const output = document.getElementById('output');
-            const line = document.createElement('div');
-            line.className = `output-line type-${type}`;
-            
-            if (type === 'user') {
-                line.innerHTML = `<span class="prompt">$ </span><span class="command">${escapeHtml(message)}</span>`;
-            } else if (type === 'system') {
-                line.innerHTML = `<span class="system">${escapeHtml(message)}</span>`;
-            } else if (type === 'error') {
-                line.innerHTML = `<span class="error">❌ ${escapeHtml(message)}</span>`;
-            } else {
-                line.innerHTML = `<pre>${escapeHtml(message)}</pre>`;
-            }
-            
-            output.appendChild(line);
-            output.scrollTop = output.scrollHeight;
-        }
 
         function updateStatus(text, type) {
             const status = document.getElementById('status');
@@ -144,24 +277,13 @@
                 .then(data => {
                     const stats = document.getElementById('stats');
                     stats.textContent = `Sessions: ${data.active_sessions}/${data.max_sessions}`;
-                });
+                })
+                .catch(e => {});
         }
 
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-
-        // Connect to WebSocket
+        // Initialize terminal and connect
+        initTerminal();
         connectWebSocket();
-
-        // Send on Enter key
-        document.getElementById('command-input').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                sendCommand();
-            }
-        });
     </script>
 </body>
 </html>

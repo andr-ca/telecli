@@ -20,14 +20,14 @@ class RotatingFileHandler(logging.handlers.RotatingFileHandler):
             msg = self.format(record)
             if Config.LOG_WRITE_POSITION == "bottom":
                 # Standard behavior - append
-                with self._lock:
+                with self.lock:
                     if self.stream is None:
                         self.stream = self._open()
                     self.stream.write(msg + self.terminator)
                     self.flush()
             else:
                 # Top - insert at beginning (requires full rewrite)
-                with self._lock:
+                with self.lock:
                     # Read existing content
                     if self.stream is not None:
                         self.stream.close()
@@ -115,14 +115,14 @@ class AppendFileHandler(logging.FileHandler):
         try:
             msg = self.format(record)
             if Config.LOG_WRITE_POSITION == "bottom":
-                with self._lock:
+                with self.lock:
                     if self.stream is None:
                         self.stream = self._open()
                     self.stream.write(msg + self.terminator)
                     self.flush()
             else:
                 # Top - insert at beginning
-                with self._lock:
+                with self.lock:
                     file_path = self.baseFilename
                     existing_content = ""
                     if os.path.exists(file_path):
@@ -161,14 +161,14 @@ class NewEachStartHandler(logging.FileHandler):
         try:
             msg = self.format(record)
             if Config.LOG_WRITE_POSITION == "bottom":
-                with self._lock:
+                with self.lock:
                     if self.stream is None:
                         self.stream = self._open()
                     self.stream.write(msg + self.terminator)
                     self.flush()
             else:
                 # Top - insert at beginning
-                with self._lock:
+                with self.lock:
                     file_path = self.baseFilename
                     existing_content = ""
                     if os.path.exists(file_path):

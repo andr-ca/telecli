@@ -46,6 +46,12 @@ class Config:
     ALLOWED_COMMANDS_ONLY = os.getenv("ALLOWED_COMMANDS_ONLY", "false").lower() == "true"
     ALLOWED_COMMANDS_FILE = os.getenv("ALLOWED_COMMANDS_FILE", "")
 
+    # AI Proxy Configuration
+    AI_PROXY_ENABLED = os.getenv("AI_PROXY_ENABLED", "false").lower() == "true"
+    AI_PROXY_PROVIDER = os.getenv("AI_PROXY_PROVIDER", "gemini-cli")  # gemini-cli, claude-cli
+    AI_PROXY_SYSTEM_PROMPT = os.getenv("AI_PROXY_SYSTEM_PROMPT", "You are helping automate terminal interactions. Provide brief, direct responses.")
+    AI_PROXY_MAX_ITERATIONS = int(os.getenv("AI_PROXY_MAX_ITERATIONS", 10))
+
     @classmethod
     def validate(cls):
         """Validate critical configuration"""

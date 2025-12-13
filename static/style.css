@@ -44,11 +44,22 @@ header p {
     font-size: 0.9em;
 }
 
+.controls {
+    margin-top: 10px;
+}
+
 .terminal {
     flex: 1;
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    padding: 10px;
+    background: #1e1e1e;
+}
+
+#terminal-container {
+    width: 100%;
+    height: 100%;
 }
 
 .terminal-output {

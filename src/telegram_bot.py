@@ -79,46 +79,72 @@ async def main():
     """Main entry point for Telegram bot"""
     global session_manager
     
+    logger.info("Initializing Telegram bot...")
+    logger.info(f"Configuration: Webhook URL = {Config.TELEGRAM_WEBHOOK_URL or 'Not set (using polling)'}")
+    logger.info(f"Configuration: Web Port = {Config.WEB_PORT}")
+    
     # Initialize session manager
+    logger.info("Creating session manager...")
     session_manager = SessionManager()
     
     # Create bot application
+    logger.info("Building Telegram application...")
     app = Application.builder().token(Config.TELEGRAM_BOT_TOKEN).build()
     
     # Add handlers
+    logger.info("Registering command handlers...")
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("reset", reset_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    logger.info("Starting Telegram bot")
+    logger.info("Starting Telegram bot application...")
     
     # Start bot
+    logger.info("Initializing bot...")
     await app.initialize()
+    logger.info("Starting bot...")
     await app.start()
     
     if Config.TELEGRAM_WEBHOOK_URL:
         # Webhook mode
-        logger.info(f"Starting bot with webhook: {Config.TELEGRAM_WEBHOOK_URL}")
+        logger.info("="*60)
+        logger.info("WEBHOOK MODE DETECTED")
+        logger.info(f"  - Webhook URL: {Config.TELEGRAM_WEBHOOK_URL}")
+        logger.info(f"  - Listen address: 0.0.0.0")
+        logger.info(f"  - Port: {Config.WEB_PORT}")
+        logger.info(f"  - URL path: /{Config.TELEGRAM_BOT_TOKEN}")
+        logger.info("="*60)
+        logger.info(f"Attempting to bind to port {Config.WEB_PORT}...")
         await app.start_webhook(
             listen="0.0.0.0",
             port=Config.WEB_PORT,
             url_path=Config.TELEGRAM_BOT_TOKEN,
             webhook_url=f"{Config.TELEGRAM_WEBHOOK_URL}/{Config.TELEGRAM_BOT_TOKEN}",
         )
+        logger.info(f"Webhook server started successfully on port {Config.WEB_PORT}")
     else:
         # Polling mode
-        logger.info("Starting bot with polling mode")
+        logger.info("="*60)
+        logger.info("POLLING MODE (no webhook configured)")
+        logger.info("="*60)
+        logger.info("Starting polling...")
         await app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+        logger.info("Polling started successfully")
+    
+    logger.info("Bot is now running. Press Ctrl+C to stop.")
     
     try:
-        # Keep bot running
-        await app.updater.stop()
-    except KeyboardInterrupt:
-        logger.info("Bot interrupted")
+        # Keep bot running indefinitely
+        import asyncio
+        await asyncio.Event().wait()
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("Bot interrupted, shutting down...")
     finally:
+        await app.updater.stop()
         await session_manager.close_all()
         await app.stop()
+        logger.info("Bot stopped successfully")
 
 
 if __name__ == "__main__":
