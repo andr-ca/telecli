@@ -23,6 +23,19 @@ def _get_int(key: str, default: int, min_value: int = None, max_value: int = Non
         raise ValueError(f"Invalid {key}: {e}. Expected integer, got '{os.getenv(key)}'")
 
 
+def _get_float(key: str, default: float, min_value: float = None, max_value: float = None) -> float:
+    """Safe float conversion from environment variable with validation"""
+    try:
+        value = float(os.getenv(key, default))
+        if min_value is not None and value < min_value:
+            raise ValueError(f"Value {value} is less than minimum {min_value}")
+        if max_value is not None and value > max_value:
+            raise ValueError(f"Value {value} is greater than maximum {max_value}")
+        return value
+    except ValueError as e:
+        raise ValueError(f"Invalid {key}: {e}. Expected float, got '{os.getenv(key)}'")
+
+
 class Config:
     """Configuration singleton"""
 
@@ -63,13 +76,19 @@ class Config:
     AI_PROXY_ENABLED = os.getenv("AI_PROXY_ENABLED", "false").lower() == "true"
     AI_PROXY_PROVIDER = os.getenv("AI_PROXY_PROVIDER", "gemini-cli")  # gemini-cli, claude-cli
     AI_PROXY_SYSTEM_PROMPT = os.getenv("AI_PROXY_SYSTEM_PROMPT",
-        "You are automating terminal input. CRITICAL RULES:\n"
-        "1. For numbered menus (e.g. '1. Yes', '2. No'), respond with ONLY the number: 1\n"
-        "2. For yes/no prompts, respond with ONLY: y or n\n"
-        "3. For text input prompts, provide a brief, relevant answer\n"
-        "4. NEVER explain your choice\n"
-        "5. NEVER add extra text, punctuation, or formatting\n"
-        "6. If you see multiple options, choose the first/default option (usually option 1 or Yes)")
+        "You are a keyboard. Your job is to type responses to terminal prompts.\n"
+        "\n"
+        "RULES:\n"
+        "1. Numbered menu? Type ONLY the number: 1\n"
+        "2. Yes/no question? Type ONLY: y or n\n"
+        "3. Text prompt? Type brief answer\n"
+        "4. NEVER say 'I cannot' or explain limitations\n"
+        "5. NEVER explain your choice\n"
+        "6. NEVER add quotes, punctuation, or extra text\n"
+        "7. If you see code reviews, bug reports, or long text: type '1' or 'y' to proceed\n"
+        "8. When unsure: type '1' (first option) or 'y' (yes)\n"
+        "\n"
+        "You are ONLY typing input. Your entire response gets typed into the terminal exactly as-is.")
     AI_PROXY_MAX_ITERATIONS = _get_int("AI_PROXY_MAX_ITERATIONS", 10, min_value=1)
 
     @classmethod
