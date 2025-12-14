@@ -60,8 +60,8 @@ class GeminiCLIProvider(LLMProvider):
             llm_logger.info(f"User Prompt:\n{prompt}")
             llm_logger.info("-" * 80)
             
-            # Run gemini CLI with --prompt flag for non-interactive mode
-            cmd = [self.cli_path, "--prompt", full_prompt]
+            # Run gemini CLI with positional prompt (--prompt is deprecated)
+            cmd = [self.cli_path, "--output-format", "text", full_prompt]
             
             logger.info(f"Running gemini with prompt: {prompt[:50]}...")
             
