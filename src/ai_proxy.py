@@ -159,7 +159,10 @@ class AIProxy:
         current_time = asyncio.get_event_loop().time()
         time_since_output = current_time - self.last_output_time
         if time_since_output > 1.5:
-            logger.info(f"✓ Prompt detected by inactivity ({time_since_output:.1f}s): {clean_line[:100]}")
+            # Log buffer contents for debugging
+            buffer_preview = '\n'.join([repr(line[:80]) for line in list(self.output_buffer)[-5:]])
+            logger.info(f"✓ Prompt detected by inactivity ({time_since_output:.1f}s)")
+            logger.debug(f"Last 5 lines in buffer:\n{buffer_preview}")
             return True
         
         return False
