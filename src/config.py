@@ -126,6 +126,20 @@ class Config:
         if cls.LOG_WRITE_POSITION not in valid_positions:
             raise ValueError(f"Invalid LOG_WRITE_POSITION: {cls.LOG_WRITE_POSITION}. Must be one of {valid_positions}")
 
+        # Validate SSL configuration
+        if cls.WEB_SSL_CERT and not cls.WEB_SSL_KEY:
+            raise ValueError("WEB_SSL_KEY required if WEB_SSL_CERT is set")
+        if cls.WEB_SSL_KEY and not cls.WEB_SSL_CERT:
+            raise ValueError("WEB_SSL_CERT required if WEB_SSL_KEY is set")
+
+        # Verify SSL files exist if specified
+        if cls.WEB_SSL_CERT:
+            if not Path(cls.WEB_SSL_CERT).exists():
+                raise ValueError(f"SSL certificate file not found: {cls.WEB_SSL_CERT}")
+        if cls.WEB_SSL_KEY:
+            if not Path(cls.WEB_SSL_KEY).exists():
+                raise ValueError(f"SSL key file not found: {cls.WEB_SSL_KEY}")
+
     @classmethod
     def get_log_level(cls):
         """Get logging level object"""
