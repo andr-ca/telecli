@@ -1,7 +1,5 @@
 """Command filtering for security - prevent arbitrary command execution"""
 import logging
-from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
