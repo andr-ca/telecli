@@ -154,10 +154,10 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
                     # Check if AI proxy is enabled for this session
                     ai_proxy = session_manager.get_ai_proxy(client_id)
                     if ai_proxy and ai_proxy.is_enabled():
-                        logger.debug(f"🤖 AI proxy active, processing chunk: {len(chunk)} bytes")
+                        logger.debug(f"🤖 AI proxy active, buffering chunk: {len(chunk)} bytes")
                         ai_proxy.add_output(chunk)
-                        # Process output for prompt detection
-                        await ai_proxy.process_output()
+                        # Don't process immediately - let inactivity detection work
+                        # process_output will be called by a background task
                     
                     logger.debug(f"Sending {len(chunk)} bytes to client {client_id}")
                     await websocket.send_json({
@@ -165,12 +165,24 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
                     })
         except Exception as e:
             logger.info(f"Output handler ended for {client_id}: {e}")
+    
+    async def ai_proxy_checker():
+        """Background task to periodically check for prompts"""
+        try:
+            while True:
+                await asyncio.sleep(0.5)  # Check every 500ms
+                ai_proxy = session_manager.get_ai_proxy(client_id)
+                if ai_proxy and ai_proxy.is_enabled():
+                    await ai_proxy.process_output()
+        except Exception as e:
+            logger.debug(f"AI proxy checker ended for {client_id}: {e}")
 
     try:
-        # Run both input and output handlers concurrently
+        # Run input/output handlers and AI proxy checker concurrently
         await asyncio.gather(
             handle_input(),
             handle_output(),
+            ai_proxy_checker(),
             return_exceptions=True
         )
     except WebSocketDisconnect as e:

@@ -63,7 +63,9 @@ class AIProxy:
         if not self.enabled:
             return
         
-        logger.debug(f"AI Proxy received output chunk: {len(text)} bytes")
+        # Log raw chunk preview
+        preview = repr(text[:200]) if len(text) < 200 else repr(text[:200]) + f"... ({len(text)} total bytes)"
+        logger.debug(f"AI Proxy received chunk: {preview}")
         
         # Split into lines and add to buffer
         lines = text.split('\n')
