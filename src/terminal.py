@@ -121,6 +121,11 @@ class TerminalSession:
         if not self.is_active or not self.process:
             raise RuntimeError("Session is not active")
 
+        # Check command filter (unless it's a special control character)
+        if text not in ('\x03', '\x04', '\r', '\n') and Config.command_filter:
+            if not Config.command_filter.is_allowed(text):
+                raise RuntimeError(f"Command not allowed: {text[:50]}")
+
         try:
             # Run pexpect operations in executor to avoid blocking async loop
             loop = asyncio.get_event_loop()
