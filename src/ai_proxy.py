@@ -30,6 +30,8 @@ class AIProxy:
         self.iteration_count = 0
         self.output_buffer = deque(maxlen=50)  # Keep last 50 lines
         self.last_output_time = 0
+        self.last_response_time = 0  # Track when we last sent a response
+        self.response_cooldown = 3.0  # Don't respond again within 3 seconds
         self.send_input_callback: Optional[Callable] = None
         
         # Memory: track conversation history
@@ -254,6 +256,13 @@ Provide a concise summary:"""
             self.disable()
             return
         
+        # Check cooldown - don't respond too quickly after last response
+        current_time = asyncio.get_event_loop().time()
+        time_since_response = current_time - self.last_response_time
+        if time_since_response < self.response_cooldown:
+            logger.debug(f"In cooldown period ({time_since_response:.1f}s < {self.response_cooldown}s)")
+            return
+        
         prompt_detected = self._detect_prompt()
         if not prompt_detected:
             return
@@ -302,6 +311,9 @@ The terminal is waiting for input. What should I respond? Provide only the respo
                 if self.send_input_callback:
                     logger.info(f"✉ Sending response to terminal")
                     await self.send_input_callback(response)
+                    # Set cooldown timestamp
+                    self.last_response_time = asyncio.get_event_loop().time()
+                    logger.debug(f"Response sent, cooldown active for {self.response_cooldown}s")
                 else:
                     logger.error("❌ No input callback set!")
             else:
