@@ -71,13 +71,23 @@ class AIProxy:
         preview = repr(text[:200]) if len(text) < 200 else repr(text[:200]) + f"... ({len(text)} total bytes)"
         logger.debug(f"AI Proxy received chunk: {preview}")
         
-        # Split into lines and add to buffer
-        lines = text.split('\n')
+        # Split by both \n and \r to handle different line endings
+        lines = re.split(r'[\r\n]+', text)
         added_lines = 0
+        
         for line in lines:
-            if line.strip():
-                self.output_buffer.append(line)
-                added_lines += 1
+            # Quick check - skip if completely empty or just whitespace
+            if not line or not line.strip():
+                continue
+            
+            # Skip lines that are purely ANSI codes
+            stripped = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', line)
+            stripped = re.sub(r'\x1b[^\[]*', '', stripped)
+            if not stripped.strip():
+                continue
+            
+            self.output_buffer.append(line)
+            added_lines += 1
         
         if added_lines > 0:
             logger.debug(f"Added {added_lines} lines to buffer (total: {len(self.output_buffer)})")
@@ -172,20 +182,34 @@ class AIProxy:
         return False
     
     def _build_context(self) -> str:
-        """Build context from recent output"""
-        # Get last 20 lines of output (increased for better menu capture)
-        recent_lines = list(self.output_buffer)[-20:]
+        """Build context from recent output with aggressive cleaning"""
+        # Get last 30 lines of output (increased for better menu capture)
+        recent_lines = list(self.output_buffer)[-30:]
         
-        # Strip ANSI codes from each line for clean context
+        # Aggressively clean each line
         cleaned_lines = []
         for line in recent_lines:
-            # Remove all ANSI escape sequences
+            # Remove all ANSI escape sequences (colors, formatting)
             clean = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', line)
             # Remove other escape sequences
             clean = re.sub(r'\x1b[^\[]*', '', clean)
+            # Remove control characters like \x1b
+            clean = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', clean)
             clean = clean.strip()
-            if clean:  # Only include non-empty lines
-                cleaned_lines.append(clean)
+            
+            # Skip if empty or just decorative
+            if not clean:
+                continue
+            
+            # Skip pure decoration lines (box drawing, spinner symbols, separators)
+            if re.match(r'^[─┌┐└┘├┤┬┴┼│\-_=]{3,}$', clean):  # Lines of just box chars
+                continue
+            if re.match(r'^[∴✶✽⎿\.]+.*$', clean):  # Spinner/loading indicators
+                continue
+            if clean in ['? for shortcuts']:  # Specific noise patterns
+                continue
+            
+            cleaned_lines.append(clean)
         
         context = '\n'.join(cleaned_lines)
         return context
