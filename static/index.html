@@ -68,14 +68,16 @@
     </div>
 
     <script>
-        const clientId = 'web-' + Math.random().toString(36).substr(2, 9);
+        const clientId = 'web-' + crypto.getRandomValues(new Uint8Array(16))
+            .reduce((hex, byte) => hex + byte.toString(16).padStart(2, '0'), '');
         let ws = null;
         let isConnected = false;
         let term = null;
         let fitAddon = null;
         let aiProxyEnabled = false;
-        let systemPrompt = "You are helping automate terminal interactions. Provide brief, direct responses.";
+        let systemPrompt = "";  // Will be loaded from backend
         let additionalContext = "";
+        let defaultProvider = "gemini-cli";  // Will be loaded from backend
 
         function initTerminal() {
             // Create xterm.js terminal
@@ -191,10 +193,24 @@
             }
         }
         
-        function openProxySettings() {
+        async function openProxySettings() {
+            // Load config from backend if not already loaded
+            if (!systemPrompt) {
+                try {
+                    const response = await fetch('/api/ai-proxy/config');
+                    const config = await response.json();
+                    systemPrompt = config.default_system_prompt;
+                    defaultProvider = config.default_provider;
+                } catch (e) {
+                    console.error('Failed to load AI proxy config:', e);
+                    systemPrompt = 'You are helping automate terminal interactions.';
+                }
+            }
+            
             // Pre-fill with current values
             document.getElementById('system-prompt-input').value = systemPrompt;
             document.getElementById('context-input').value = additionalContext;
+            document.getElementById('provider-select').value = defaultProvider;
             document.getElementById('proxy-settings-modal').style.display = 'flex';
         }
         
