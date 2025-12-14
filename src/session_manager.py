@@ -93,10 +93,12 @@ class SessionManager:
             logger.info(f"💬 AI Proxy callback invoked to send text to terminal: {repr(text[:100])}")
             # Send character by character like user input, then carriage return
             for char in text:
+                logger.debug(f"Sending character: {repr(char)}")
                 await self.send_input(session_id, char, newline=False)
             # Send carriage return to submit
+            logger.info(f"📤 Sending carriage return to submit")
             await self.send_input(session_id, "\r", newline=False)
-            logger.info(f"✓ Text sent to session {session_id} character-by-character")
+            logger.info(f"✓ Text '{text}' + CR sent to session {session_id}")
         
         ai_proxy.set_input_callback(send_input)
         ai_proxy.enable()
