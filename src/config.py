@@ -5,6 +5,8 @@ import logging
 import os
 from dotenv import load_dotenv
 from pathlib import Path
+from typing import Optional
+from src.command_filter import CommandFilter
 
 # Load .env file
 load_dotenv()
@@ -72,6 +74,9 @@ class Config:
     ALLOWED_COMMANDS_ONLY = os.getenv("ALLOWED_COMMANDS_ONLY", "false").lower() == "true"
     ALLOWED_COMMANDS_FILE = os.getenv("ALLOWED_COMMANDS_FILE", "")
 
+    # Command filtering (lazily initialized)
+    command_filter: Optional[CommandFilter] = None
+
     # AI Proxy Configuration
     AI_PROXY_ENABLED = os.getenv("AI_PROXY_ENABLED", "false").lower() == "true"
     AI_PROXY_PROVIDER = os.getenv("AI_PROXY_PROVIDER", "gemini-cli")  # gemini-cli, claude-cli
@@ -89,7 +94,7 @@ class Config:
         "8. When unsure: type '1' (first option) or 'y' (yes)\n"
         "\n"
         "You are ONLY typing input. Your entire response gets typed into the terminal exactly as-is.")
-    AI_PROXY_MAX_ITERATIONS = _get_int("AI_PROXY_MAX_ITERATIONS", 10, min_value=1)
+    AI_PROXY_MAX_ITERATIONS = _get_int("AI_PROXY_MAX_ITERATIONS", 50, min_value=1)
 
     @classmethod
     def validate(cls):
@@ -139,6 +144,17 @@ class Config:
         if cls.WEB_SSL_KEY:
             if not Path(cls.WEB_SSL_KEY).exists():
                 raise ValueError(f"SSL key file not found: {cls.WEB_SSL_KEY}")
+
+        # Initialize command filter
+        logger = logging.getLogger(__name__)
+        if cls.ALLOWED_COMMANDS_ONLY:
+            if not cls.ALLOWED_COMMANDS_FILE:
+                raise ValueError("ALLOWED_COMMANDS_FILE required when ALLOWED_COMMANDS_ONLY is true")
+            cls.command_filter = CommandFilter(True, cls.ALLOWED_COMMANDS_FILE)
+            logger.info(f"Command filtering enabled: {cls.command_filter.get_status()['num_allowed']} allowed commands")
+        else:
+            cls.command_filter = CommandFilter(False, "")
+            logger.info("Command filtering disabled (all commands allowed)")
 
     @classmethod
     def get_log_level(cls):
