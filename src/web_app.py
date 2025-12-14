@@ -107,24 +107,30 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
                     # Handle AI proxy control
                     if "proxy" in message:
                         proxy_cmd = message["proxy"]
+                        logger.info(f"📡 Received proxy command: {proxy_cmd}")
                         if proxy_cmd.get("enable"):
                             provider = proxy_cmd.get("provider")
                             system_prompt = proxy_cmd.get("system_prompt")  # Get custom prompt
+                            logger.info(f"🔧 Enabling AI proxy: provider={provider}, has_custom_prompt={bool(system_prompt)}")
                             success = await session_manager.enable_ai_proxy(
                                 client_id, 
                                 provider, 
                                 system_prompt
                             )
                             if success:
-                                logger.info(f"Enabled AI proxy for {client_id} with custom prompt")
+                                logger.info(f"✅ Enabled AI proxy for {client_id}")
                                 ai_proxy = session_manager.get_ai_proxy(client_id)
                                 if ai_proxy:
-                                    await websocket.send_json({"proxy_status": ai_proxy.get_status()})
+                                    status = ai_proxy.get_status()
+                                    logger.info(f"Status: {status}")
+                                    await websocket.send_json({"proxy_status": status})
                             else:
+                                logger.error(f"❌ Failed to enable AI proxy for {client_id}")
                                 await websocket.send_json({"error": "Failed to enable AI proxy"})
                         elif proxy_cmd.get("disable"):
+                            logger.info(f"🔧 Disabling AI proxy for {client_id}")
                             await session_manager.disable_ai_proxy(client_id)
-                            logger.info(f"Disabled AI proxy for {client_id}")
+                            logger.info(f"✅ Disabled AI proxy for {client_id}")
                             await websocket.send_json({"proxy_status": {"enabled": False}})
                 except json.JSONDecodeError as e:
                     logger.error(f"JSON decode error from client {client_id}: {e}")
@@ -147,12 +153,13 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
                 if chunk:
                     # Check if AI proxy is enabled for this session
                     ai_proxy = session_manager.get_ai_proxy(client_id)
-                    if ai_proxy:
+                    if ai_proxy and ai_proxy.is_enabled():
+                        logger.debug(f"🤖 AI proxy active, processing chunk: {len(chunk)} bytes")
                         ai_proxy.add_output(chunk)
                         # Process output for prompt detection
                         await ai_proxy.process_output()
                     
-                    logger.info(f"Sending {len(chunk)} bytes to client {client_id}")
+                    logger.debug(f"Sending {len(chunk)} bytes to client {client_id}")
                     await websocket.send_json({
                         "output": chunk
                     })

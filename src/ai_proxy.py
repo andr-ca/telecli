@@ -32,10 +32,18 @@ class AIProxy:
         self.last_output_time = 0
         self.send_input_callback: Optional[Callable] = None
         
+        # Memory: track conversation history
+        self.conversation_memory = []  # List of {role, content} dicts
+        self.max_memory_items = 20  # Keep last 20 exchanges
+        self.memory_summary = ""  # Compressed summary of older interactions
+        self.summarize_threshold = 12  # Summarize when memory exceeds this
+        
     def enable(self):
         """Enable AI proxy"""
         self.enabled = True
         self.iteration_count = 0
+        self.conversation_memory = []  # Reset memory on enable
+        self.memory_summary = ""  # Reset summary
         logger.info(f"AI Proxy enabled with provider: {self.llm_provider.get_name()}")
     
     def disable(self):
@@ -55,11 +63,18 @@ class AIProxy:
         if not self.enabled:
             return
         
+        logger.debug(f"AI Proxy received output chunk: {len(text)} bytes")
+        
         # Split into lines and add to buffer
         lines = text.split('\n')
+        added_lines = 0
         for line in lines:
             if line.strip():
                 self.output_buffer.append(line)
+                added_lines += 1
+        
+        if added_lines > 0:
+            logger.debug(f"Added {added_lines} lines to buffer (total: {len(self.output_buffer)})")
         
         self.last_output_time = asyncio.get_event_loop().time()
     
@@ -77,24 +92,32 @@ class AIProxy:
         
         # Remove ANSI escape codes for analysis
         clean_line = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', last_line)
+        clean_line = clean_line.strip()
         
-        # Prompt patterns
+        # Skip empty lines
+        if not clean_line:
+            return False
+        
+        logger.debug(f"Checking for prompt in: {clean_line[:100]}")
+        
+        # Prompt patterns - more specific to avoid false positives
         patterns = [
-            r'>$',  # Ends with >
-            r'\?$',  # Ends with ?
+            r'>\s*$',  # Ends with >
+            r'\?\s*$',  # Ends with ?
             r':\s*$',  # Ends with : (like "Enter name:")
-            r'\$ $',  # Shell prompt
+            r'\[.*\]\s*$',  # Ends with [options]
         ]
         
         for pattern in patterns:
             if re.search(pattern, clean_line):
-                logger.debug(f"Prompt detected: {clean_line}")
+                logger.info(f"✓ Prompt detected by pattern: {clean_line[:100]}")
                 return True
         
-        # Check for inactivity (no output for 2 seconds)
+        # Check for inactivity (no output for 1.5 seconds) - reduced from 2s
         current_time = asyncio.get_event_loop().time()
-        if current_time - self.last_output_time > 2.0:
-            logger.debug("Inactivity detected, assuming prompt")
+        time_since_output = current_time - self.last_output_time
+        if time_since_output > 1.5:
+            logger.info(f"✓ Prompt detected by inactivity ({time_since_output:.1f}s): {clean_line[:100]}")
             return True
         
         return False
@@ -105,6 +128,73 @@ class AIProxy:
         recent_lines = list(self.output_buffer)[-10:]
         context = '\n'.join(recent_lines)
         return context
+    
+    async def _summarize_memory(self):
+        """Summarize and compress older memory items"""
+        if len(self.conversation_memory) <= self.summarize_threshold:
+            return
+        
+        try:
+            logger.info(f"📝 Summarizing conversation memory ({len(self.conversation_memory)} items)")
+            
+            # Take older items (keep last 6 items unsummarized)
+            items_to_summarize = self.conversation_memory[:-6]
+            
+            # Build text representation
+            conversation_text = ""
+            for item in items_to_summarize:
+                if item['role'] == 'prompt':
+                    conversation_text += f"Terminal: {item['content']}\n"
+                elif item['role'] == 'response':
+                    conversation_text += f"AI: {item['content']}\n"
+            
+            # Ask LLM to summarize
+            summarize_prompt = f"""Summarize this terminal interaction history in 2-3 sentences. Focus on the key context and what the user is trying to accomplish:
+
+{conversation_text}
+
+Provide a concise summary:"""
+            
+            summary = await self.llm_provider.generate(
+                summarize_prompt,
+                "You are a helpful assistant that summarizes terminal interactions concisely."
+            )
+            
+            if summary:
+                # Update summary (append if we already have one)
+                if self.memory_summary:
+                    self.memory_summary += f" {summary.strip()}"
+                else:
+                    self.memory_summary = summary.strip()
+                
+                # Keep only recent items
+                self.conversation_memory = self.conversation_memory[-6:]
+                
+                logger.info(f"✓ Memory summarized: kept {len(self.conversation_memory)} recent items, summary: {len(self.memory_summary)} chars")
+            else:
+                logger.warning("Failed to generate memory summary")
+                
+        except Exception as e:
+            logger.error(f"Error summarizing memory: {e}")
+    
+    def _build_memory_context(self) -> str:
+        """Build conversation history for context"""
+        memory_parts = []
+        
+        # Add summary of older interactions if available
+        if self.memory_summary:
+            memory_parts.append(f"\n\nSummary of earlier interactions:\n{self.memory_summary}")
+        
+        # Add recent interactions
+        if self.conversation_memory:
+            memory_parts.append("\n\nRecent interactions:")
+            for item in self.conversation_memory[-10:]:  # Last 10 items
+                if item['role'] == 'prompt':
+                    memory_parts.append(f"Terminal asked: {item['content']}")
+                elif item['role'] == 'response':
+                    memory_parts.append(f"You responded: {item['content']}")
+        
+        return '\n'.join(memory_parts) if memory_parts else ""
     
     async def process_output(self):
         """
@@ -119,32 +209,61 @@ class AIProxy:
             self.disable()
             return
         
-        if not self._detect_prompt():
+        prompt_detected = self._detect_prompt()
+        if not prompt_detected:
             return
         
         # Build prompt for LLM
         context = self._build_context()
-        prompt = f"Terminal output:\n{context}\n\nThe terminal is waiting for input. What should I respond? Provide only the response text, nothing else."
+        memory_context = self._build_memory_context()
         
-        logger.info(f"Detected prompt, querying {self.llm_provider.get_name()}...")
+        logger.info(f"🤖 Building LLM prompt with {len(context)} chars of context and {len(self.conversation_memory)} memory items")
+        logger.debug(f"Context preview: {context[:200]}...")
+        
+        prompt = f"""Terminal output:
+{context}
+
+The terminal is waiting for input. What should I respond? Provide only the response text, nothing else.
+{memory_context}"""
+        
+        logger.info(f"→ Querying {self.llm_provider.get_name()} (iteration {self.iteration_count + 1}/{self.max_iterations})")
         
         try:
             response = await self.llm_provider.generate(prompt, self.system_prompt)
             
             if response:
+                response = response.strip()
                 self.iteration_count += 1
-                logger.info(f"AI response ({self.iteration_count}/{self.max_iterations}): {response[:100]}")
+                logger.info(f"← Got {len(response)} chars from LLM: {response[:100]}{'...' if len(response) > 100 else ''}")
+                
+                # Store in memory
+                last_line = self.output_buffer[-1] if self.output_buffer else ""
+                self.conversation_memory.append({
+                    'role': 'prompt',
+                    'content': last_line.strip()
+                })
+                self.conversation_memory.append({
+                    'role': 'response',
+                    'content': response
+                })
+                
+                # Summarize and compress memory if it's getting large
+                if len(self.conversation_memory) > self.summarize_threshold:
+                    await self._summarize_memory()
+                
+                logger.debug(f"💭 Updated conversation memory: {len(self.conversation_memory)} items, has_summary={bool(self.memory_summary)}")
                 
                 # Send response to terminal
                 if self.send_input_callback:
+                    logger.info(f"✉ Sending response to terminal")
                     await self.send_input_callback(response)
                 else:
-                    logger.error("No input callback set")
+                    logger.error("❌ No input callback set!")
             else:
-                logger.error("Failed to get LLM response")
+                logger.error("❌ LLM returned empty response")
                 
         except Exception as e:
-            logger.error(f"AI Proxy error: {e}")
+            logger.error(f"❌ AI Proxy error: {e}", exc_info=True)
     
     def get_status(self) -> dict:
         """Get current proxy status"""
@@ -153,5 +272,7 @@ class AIProxy:
             "provider": self.llm_provider.get_name() if self.llm_provider else None,
             "iterations": self.iteration_count,
             "max_iterations": self.max_iterations,
-            "buffer_size": len(self.output_buffer)
+            "buffer_size": len(self.output_buffer),
+            "memory_items": len(self.conversation_memory),
+            "has_summary": bool(self.memory_summary)
         }

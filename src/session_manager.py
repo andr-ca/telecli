@@ -42,8 +42,9 @@ class SessionManager:
     async def send_input(self, session_id: str, text: str, newline: bool = True) -> None:
         """Send input to a session"""
         session = await self.get_session(session_id)
+        logger.debug(f"SessionManager.send_input called with: text={repr(text[:100])}, newline={newline}")
         await session.send_input(text, newline)
-        logger.debug(f"Sent input to session {session_id}: {text[:50]}...")
+        logger.debug(f"✓ Sent input to session {session_id}")
 
     async def resize_session(self, session_id: str, rows: int, cols: int) -> None:
         """Resize a terminal session"""
@@ -89,7 +90,9 @@ class SessionManager:
         
         # Set callback to send input to terminal
         async def send_input(text: str):
+            logger.info(f"💬 AI Proxy callback invoked to send text to terminal: {repr(text[:100])}")
             await self.send_input(session_id, text + "\n", newline=False)
+            logger.info(f"✓ Text sent to session {session_id}")
         
         ai_proxy.set_input_callback(send_input)
         ai_proxy.enable()
