@@ -91,7 +91,8 @@ class SessionManager:
         # Set callback to send input to terminal
         async def send_input(text: str):
             logger.info(f"💬 AI Proxy callback invoked to send text to terminal: {repr(text[:100])}")
-            await self.send_input(session_id, text + "\n", newline=False)
+            # Use sendline (newline=True) to properly submit the input
+            await self.send_input(session_id, text, newline=True)
             logger.info(f"✓ Text sent to session {session_id}")
         
         ai_proxy.set_input_callback(send_input)
