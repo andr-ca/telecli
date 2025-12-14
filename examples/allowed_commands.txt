@@ -1,0 +1,45 @@
+# TeleCLI Allowed Commands
+# Each line is a command name that users can run
+# Everything after # is a comment
+# Empty lines are ignored
+
+# File operations (safe)
+ls
+cat
+grep
+find
+head
+tail
+wc
+
+# Navigation
+cd
+pwd
+echo
+
+# Development
+python3
+node
+npm
+git
+docker
+
+# System monitoring (read-only)
+ps
+top
+whoami
+date
+uname
+
+# Network
+ping
+curl
+wget
+netstat
+
+# Text processing
+sed
+awk
+cut
+sort
+uniq
