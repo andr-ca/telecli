@@ -49,7 +49,10 @@ class Config:
     # AI Proxy Configuration
     AI_PROXY_ENABLED = os.getenv("AI_PROXY_ENABLED", "false").lower() == "true"
     AI_PROXY_PROVIDER = os.getenv("AI_PROXY_PROVIDER", "gemini-cli")  # gemini-cli, claude-cli
-    AI_PROXY_SYSTEM_PROMPT = os.getenv("AI_PROXY_SYSTEM_PROMPT", "You are helping automate terminal interactions. Provide brief, direct responses.")
+    AI_PROXY_SYSTEM_PROMPT = os.getenv("AI_PROXY_SYSTEM_PROMPT", 
+        "You are helping automate terminal interactions. When you see numbered options, respond with just the number (e.g. '1'). "
+        "When asked yes/no questions, respond with 'y' or 'n'. For text prompts, provide brief, direct responses. "
+        "Never explain your choice, just provide the input value.")
     AI_PROXY_MAX_ITERATIONS = int(os.getenv("AI_PROXY_MAX_ITERATIONS", 10))
 
     @classmethod

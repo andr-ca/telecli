@@ -88,7 +88,10 @@ class AIProxy:
         if len(self.output_buffer) == 0:
             return False
         
-        last_line = self.output_buffer[-1].strip()
+        last_line = self.output_buffer[-1]
+        
+        # Log raw line for debugging
+        logger.debug(f"Raw last_line: {repr(last_line[:150])}")
         
         # Remove ANSI escape codes for analysis
         clean_line = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', last_line)
@@ -96,21 +99,58 @@ class AIProxy:
         
         # Skip empty lines
         if not clean_line:
+            # Check inactivity even if line is empty
+            current_time = asyncio.get_event_loop().time()
+            time_since_output = current_time - self.last_output_time
+            if time_since_output > 1.5:
+                # Get the last non-empty line
+                for line in reversed(list(self.output_buffer)):
+                    test_clean = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', line).strip()
+                    if test_clean:
+                        logger.info(f"✓ Prompt detected by inactivity on last content: {test_clean[:100]}")
+                        return True
             return False
         
         logger.debug(f"Checking for prompt in: {clean_line[:100]}")
         
-        # Prompt patterns - more specific to avoid false positives
-        patterns = [
-            r'>\s*$',  # Ends with >
-            r'\?\s*$',  # Ends with ?
-            r':\s*$',  # Ends with : (like "Enter name:")
-            r'\[.*\]\s*$',  # Ends with [options]
+        # Ignore false positives - decorative elements, spinners, etc.
+        false_positives = [
+            r'^[─┌┐└┘├┤┬┴┼│]+$',  # Box drawing characters
+            r'^[∴✶⎿]+.*$',  # Spinner/loading symbols
+            r'^>\s*$',  # Just a > with nothing else
+            r'^Use skill',  # Skill loading messages
+            r'^Loading',  # Loading messages
         ]
         
+        for fp_pattern in false_positives:
+            if re.match(fp_pattern, clean_line):
+                logger.debug(f"Ignoring false positive: {clean_line[:50]}")
+                return False
+        
+        # Real prompt patterns - more specific
+        patterns = [
+            r'\?\s*$',  # Ends with ?
+            r':\s*$',  # Ends with : (like "Enter name:" or "Do you want to proceed:")
+            r'^\s*❯\s*\d+\.',  # Numbered menu with cursor (❯ 1.)
+            r'^\s*\d+\.\s+\w+',  # Numbered options (1. Yes, 2. No)
+            r'\(y/n\)',  # Yes/no prompt
+            r'\[y/N\]',  # Bracketed yes/no
+        ]
+        
+        # Check if any of the patterns match
         for pattern in patterns:
             if re.search(pattern, clean_line):
-                logger.info(f"✓ Prompt detected by pattern: {clean_line[:100]}")
+                logger.info(f"✓ Prompt detected by pattern in last line: {clean_line[:100]}")
+                return True
+        
+        # Also check last few lines for multi-line prompts (like numbered menus)
+        if len(self.output_buffer) >= 3:
+            last_3_lines = '\n'.join([re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', line).strip() 
+                                     for line in list(self.output_buffer)[-3:]])
+            
+            # Check for numbered menu patterns across multiple lines
+            if re.search(r'❯\s*\d+\.', last_3_lines) or re.search(r'\d+\.\s+(Yes|No|\w+).*\n.*\d+\.', last_3_lines, re.IGNORECASE):
+                logger.info(f"✓ Prompt detected: numbered menu in recent lines")
                 return True
         
         # Check for inactivity (no output for 1.5 seconds) - reduced from 2s
