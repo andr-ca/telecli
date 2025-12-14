@@ -28,7 +28,7 @@ class AIProxy:
         self.max_iterations = max_iterations
         self.enabled = False
         self.iteration_count = 0
-        self.output_buffer = deque(maxlen=50)  # Keep last 50 lines
+        self.output_buffer = deque(maxlen=100)  # Keep last 100 lines (increased for menus)
         self.last_output_time = 0
         self.last_response_time = 0  # Track when we last sent a response
         self.response_cooldown = 3.0  # Don't respond again within 3 seconds
@@ -171,9 +171,21 @@ class AIProxy:
     
     def _build_context(self) -> str:
         """Build context from recent output"""
-        # Get last 10 lines of output
-        recent_lines = list(self.output_buffer)[-10:]
-        context = '\n'.join(recent_lines)
+        # Get last 20 lines of output (increased for better menu capture)
+        recent_lines = list(self.output_buffer)[-20:]
+        
+        # Strip ANSI codes from each line for clean context
+        cleaned_lines = []
+        for line in recent_lines:
+            # Remove all ANSI escape sequences
+            clean = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', line)
+            # Remove other escape sequences
+            clean = re.sub(r'\x1b[^\[]*', '', clean)
+            clean = clean.strip()
+            if clean:  # Only include non-empty lines
+                cleaned_lines.append(clean)
+        
+        context = '\n'.join(cleaned_lines)
         return context
     
     async def _summarize_memory(self):
