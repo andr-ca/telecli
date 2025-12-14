@@ -10,6 +10,19 @@ from pathlib import Path
 load_dotenv()
 
 
+def _get_int(key: str, default: int, min_value: int = None, max_value: int = None) -> int:
+    """Safe integer conversion from environment variable with validation"""
+    try:
+        value = int(os.getenv(key, default))
+        if min_value is not None and value < min_value:
+            raise ValueError(f"Value {value} is less than minimum {min_value}")
+        if max_value is not None and value > max_value:
+            raise ValueError(f"Value {value} is greater than maximum {max_value}")
+        return value
+    except ValueError as e:
+        raise ValueError(f"Invalid {key}: {e}. Expected integer, got '{os.getenv(key)}'")
+
+
 class Config:
     """Configuration singleton"""
 
@@ -23,20 +36,20 @@ class Config:
     LOG_FILE_DIR = os.getenv("LOG_FILE_DIR", "./logs")
     LOG_FILE_NAME = os.getenv("LOG_FILE_NAME", "telecli")
     LOG_FILE_MODE = os.getenv("LOG_FILE_MODE", "append").lower()  # append, new_each_start, timestamp_rotate
-    LOG_FILE_MAX_SIZE = int(os.getenv("LOG_FILE_MAX_SIZE", 100))  # MB
-    LOG_DIR_MAX_SIZE = int(os.getenv("LOG_DIR_MAX_SIZE", 1000))  # MB
+    LOG_FILE_MAX_SIZE = _get_int("LOG_FILE_MAX_SIZE", 100, min_value=1)  # MB
+    LOG_DIR_MAX_SIZE = _get_int("LOG_DIR_MAX_SIZE", 1000, min_value=1)  # MB
     LOG_ROTATION_INTERVAL = os.getenv("LOG_ROTATION_INTERVAL", "1d").lower()  # 1d, 1w, 1m
     LOG_WRITE_POSITION = os.getenv("LOG_WRITE_POSITION", "bottom").lower()  # top, bottom
 
     # Terminal Configuration
     TERMINAL_SHELL = os.getenv("TERMINAL_SHELL", "bash")
-    TERMINAL_TIMEOUT = int(os.getenv("TERMINAL_TIMEOUT", 300))  # seconds
-    TERMINAL_MAX_SESSIONS = int(os.getenv("TERMINAL_MAX_SESSIONS", 100))
+    TERMINAL_TIMEOUT = _get_int("TERMINAL_TIMEOUT", 300, min_value=1)  # seconds
+    TERMINAL_MAX_SESSIONS = _get_int("TERMINAL_MAX_SESSIONS", 100, min_value=1)
     TERMINAL_ENCODING = os.getenv("TERMINAL_ENCODING", "utf-8")
 
     # Web Server Configuration
     WEB_HOST = os.getenv("WEB_HOST", "127.0.0.1")
-    WEB_PORT = int(os.getenv("WEB_PORT", 8000))
+    WEB_PORT = _get_int("WEB_PORT", 8000, min_value=1, max_value=65535)
     WEB_SSL_CERT = os.getenv("WEB_SSL_CERT", "")
     WEB_SSL_KEY = os.getenv("WEB_SSL_KEY", "")
 
@@ -49,7 +62,7 @@ class Config:
     # AI Proxy Configuration
     AI_PROXY_ENABLED = os.getenv("AI_PROXY_ENABLED", "false").lower() == "true"
     AI_PROXY_PROVIDER = os.getenv("AI_PROXY_PROVIDER", "gemini-cli")  # gemini-cli, claude-cli
-    AI_PROXY_SYSTEM_PROMPT = os.getenv("AI_PROXY_SYSTEM_PROMPT", 
+    AI_PROXY_SYSTEM_PROMPT = os.getenv("AI_PROXY_SYSTEM_PROMPT",
         "You are automating terminal input. CRITICAL RULES:\n"
         "1. For numbered menus (e.g. '1. Yes', '2. No'), respond with ONLY the number: 1\n"
         "2. For yes/no prompts, respond with ONLY: y or n\n"
@@ -57,7 +70,7 @@ class Config:
         "4. NEVER explain your choice\n"
         "5. NEVER add extra text, punctuation, or formatting\n"
         "6. If you see multiple options, choose the first/default option (usually option 1 or Yes)")
-    AI_PROXY_MAX_ITERATIONS = int(os.getenv("AI_PROXY_MAX_ITERATIONS", 10))
+    AI_PROXY_MAX_ITERATIONS = _get_int("AI_PROXY_MAX_ITERATIONS", 10, min_value=1)
 
     @classmethod
     def validate(cls):

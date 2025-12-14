@@ -32,6 +32,8 @@ class AIProxy:
         self.last_output_time = 0
         self.last_response_time = 0  # Track when we last sent a response
         self.response_cooldown = 3.0  # Don't respond again within 3 seconds
+        self.stuck_check_timeout = 60.0  # If no output for 60s after response, try again
+        self.last_buffer_hash = ""  # Track if buffer content changed
         self.send_input_callback: Optional[Callable] = None
         
         # Memory: track conversation history
@@ -268,14 +270,29 @@ Provide a concise summary:"""
             self.disable()
             return
         
-        # Check cooldown - don't respond too quickly after last response
         current_time = asyncio.get_event_loop().time()
         time_since_response = current_time - self.last_response_time
+        
+        # Check cooldown - don't respond too quickly after last response
         if time_since_response < self.response_cooldown:
             logger.debug(f"In cooldown period ({time_since_response:.1f}s < {self.response_cooldown}s)")
             return
         
-        prompt_detected = self._detect_prompt()
+        # Check if terminal is stuck (no changes after our response for 60s)
+        if self.last_response_time > 0 and time_since_response > self.stuck_check_timeout:
+            # Check if buffer content has changed since last response
+            current_hash = hash(''.join(list(self.output_buffer)))
+            if current_hash == self.last_buffer_hash:
+                logger.info(f"⚠️ Terminal stuck for {time_since_response:.0f}s with no changes - re-querying LLM")
+                # Force prompt detection to retry
+                prompt_detected = True
+            else:
+                # Buffer changed, reset hash and continue normal detection
+                self.last_buffer_hash = current_hash
+                prompt_detected = self._detect_prompt()
+        else:
+            prompt_detected = self._detect_prompt()
+        
         if not prompt_detected:
             return
         
@@ -323,9 +340,10 @@ The terminal is waiting for input. What should I respond? Provide only the respo
                 if self.send_input_callback:
                     logger.info(f"✉ Sending response to terminal")
                     await self.send_input_callback(response)
-                    # Set cooldown timestamp
+                    # Set cooldown timestamp and save buffer state
                     self.last_response_time = asyncio.get_event_loop().time()
-                    logger.debug(f"Response sent, cooldown active for {self.response_cooldown}s")
+                    self.last_buffer_hash = hash(''.join(list(self.output_buffer)))
+                    logger.debug(f"Response sent, cooldown active for {self.response_cooldown}s, will check for stuck at {self.stuck_check_timeout}s")
                 else:
                     logger.error("❌ No input callback set!")
             else:
