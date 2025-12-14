@@ -204,14 +204,21 @@ class AIProxy:
             # Skip pure decoration lines (box drawing, spinner symbols, separators)
             if re.match(r'^[─┌┐└┘├┤┬┴┼│\-_=]{3,}$', clean):  # Lines of just box chars
                 continue
-            if re.match(r'^[∴✶✽⎿\.]+.*$', clean):  # Spinner/loading indicators
+            if re.match(r'^[∴✶✽⎿\*\.]+.*(?:esc to interrupt|ctrl\+[a-z])', clean, re.IGNORECASE):  # Spinner/loading with instructions
                 continue
-            if clean in ['? for shortcuts']:  # Specific noise patterns
+            if re.match(r'^[\*∴✶✽]\s+(Thought|Imagining|Thinking|Loading|Finagling|Processing)', clean, re.IGNORECASE):  # Common loading messages
+                continue
+            if clean in ['? for shortcuts', '>']:  # Specific noise patterns
                 continue
             
             cleaned_lines.append(clean)
         
         context = '\n'.join(cleaned_lines)
+        
+        # Log cleaned context for debugging
+        logger.debug(f"Built context with {len(cleaned_lines)} cleaned lines (from {len(recent_lines)} raw)")
+        logger.debug(f"Clean context preview: {context[:300]}...")
+        
         return context
     
     async def _summarize_memory(self):
