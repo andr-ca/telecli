@@ -9,8 +9,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from contextlib import asynccontextmanager
 from starlette.websockets import WebSocketDisconnect
+from pydantic import ValidationError
 from src.session_manager import SessionManager
 from src.config import Config
+from src.ws_models import WebSocketMessage
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +66,24 @@ async def get_stats():
     return stats
 
 
+@app.get("/api/auth/required")
+async def get_auth_required():
+    """Get whether authentication is required"""
+    return {
+        "auth_required": Config.AUTH_REQUIRED
+    }
+
+
+@app.get("/api/ai-proxy/config")
+async def get_ai_proxy_config():
+    """Get AI proxy configuration (single source of truth)"""
+    return {
+        "default_provider": Config.AI_PROXY_PROVIDER,
+        "default_system_prompt": Config.AI_PROXY_SYSTEM_PROMPT,
+        "max_iterations": Config.AI_PROXY_MAX_ITERATIONS
+    }
+
+
 @app.post("/reset/{client_id}")
 async def reset_session(client_id: str):
     """Reset a client's session"""
@@ -79,6 +99,15 @@ async def reset_session(client_id: str):
 @app.websocket("/ws/{client_id}")
 async def websocket_endpoint(websocket: WebSocket, client_id: str):
     """WebSocket endpoint for bidirectional terminal streaming"""
+
+    # Check authentication if required
+    if Config.AUTH_REQUIRED:
+        token = websocket.query_params.get("token")
+        if not token or token != Config.AUTH_TOKEN:
+            logger.warning(f"WebSocket auth failed for {client_id}: invalid or missing token")
+            await websocket.close(code=1008, reason="Unauthorized")
+            return
+
     await websocket.accept()
     logger.info(f"WebSocket connection established for client {client_id}")
 
@@ -93,9 +122,14 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
                     message = json.loads(data)
                     input_text = message.get("input", "")
                     if input_text:
+                        # Notify AI proxy that user is typing (pause automation)
+                        ai_proxy = session_manager.get_ai_proxy(client_id)
+                        if ai_proxy and ai_proxy.is_enabled():
+                            ai_proxy.notify_user_input(input_text)
+                        
                         # xterm.js sends input character by character, don't add newline
                         await session_manager.send_input(client_id, input_text, newline=False)
-                        logger.info(f"Sent input to terminal for {client_id}: {repr(input_text[:50])}")
+                        logger.debug(f"Sent input to terminal for {client_id}: {repr(input_text[:50])}")
                     
                     # Handle terminal resize
                     if "resize" in message:

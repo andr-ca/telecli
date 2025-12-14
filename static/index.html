@@ -16,11 +16,13 @@
             <h1>🖥️ TeleCLI</h1>
             <p>Web-based Terminal Interface</p>
             <div class="controls">
-                <button id="ai-proxy-btn" onclick="toggleAIProxy()" style="background-color: #9b59b6; color: white; padding: 5px 15px; border: none; border-radius: 3px; cursor: pointer;">🤖 AI Proxy: OFF</button>
-                <button id="ctrl-c-btn" onclick="sendCtrlC()" style="background-color: #e74c3c; color: white; padding: 5px 15px; border: none; border-radius: 3px; cursor: pointer; margin-left: 10px;">Ctrl+C</button>
-                <button id="reset-btn" onclick="resetSession()" style="background-color: #95a5a6; color: white; padding: 5px 15px; border: none; border-radius: 3px; cursor: pointer; margin-left: 10px;">Reset</button>
+                <button id="ai-proxy-btn" onclick="toggleAIProxy()">🤖 AI Proxy: OFF</button>
+                <button id="ai-proxy-reset-btn" onclick="resetAIProxy()" style="display: none;">🔄 Reset AI</button>
+                <button id="ctrl-c-btn" onclick="sendCtrlC()">⌧ Ctrl+C</button>
+                <button id="reset-btn" onclick="resetSession()">🔁 Reset Terminal</button>
             </div>
-            <div id="proxy-status" style="margin-top: 10px; font-size: 12px; color: #b0b0b0;"></div>
+            <div id="proxy-status" style="margin-top: 10px; font-size: 14px; font-weight: bold; color: #b0b0b0;"></div>
+            <div id="auth-status" style="margin-top: 5px; font-size: 12px; color: #b0b0b0;"></div>
         </header>
         
         <!-- AI Proxy Settings Modal -->
@@ -91,7 +93,12 @@
                     cursor: '#ffffff'
                 },
                 rows: 30,
-                cols: 100
+                cols: 100,
+                scrollback: 10000,
+                // Prevent auto-scroll to top
+                convertEol: true,
+                scrollOnUserInput: false,  // Don't scroll when user types
+                fastScrollModifier: 'shift'
             });
             
             // Add fit addon for responsive sizing
@@ -133,7 +140,19 @@
 
         function getWebSocketUrl() {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            return `${protocol}//${window.location.host}/ws/${clientId}`;
+            let token = '';
+
+            // Try to get token from localStorage
+            token = localStorage.getItem('terminal-auth-token');
+            if (!token) {
+                token = prompt("Enter authentication token:") || "";
+                if (token) {
+                    localStorage.setItem('terminal-auth-token', token);
+                }
+            }
+
+            const url = `${protocol}//${window.location.host}/ws/${clientId}`;
+            return token ? `${url}?token=${encodeURIComponent(token)}` : url;
         }
 
         function connectWebSocket() {
@@ -149,8 +168,16 @@
                     try {
                         const data = JSON.parse(event.data);
                         if (data.output && term) {
+                            // Save scroll position to prevent auto-scroll
+                            const wasAtBottom = term.buffer.active.baseY + term.rows >= term.buffer.active.length;
+                            
                             // Write output directly to xterm
                             term.write(data.output);
+                            
+                            // Only scroll to bottom if user was already at bottom
+                            if (wasAtBottom) {
+                                term.scrollToBottom();
+                            }
                         } else if (data.error) {
                             term.write('\r\n\x1b[31mError: ' + data.error + '\x1b[0m\r\n');
                         } else if (data.proxy_status) {
@@ -186,11 +213,38 @@
                 ws.send(JSON.stringify({ proxy: { disable: true } }));
                 document.getElementById('ai-proxy-btn').style.backgroundColor = '#9b59b6';
                 document.getElementById('ai-proxy-btn').textContent = '🤖 AI Proxy: OFF';
+                document.getElementById('ai-proxy-reset-btn').style.display = 'none';
                 document.getElementById('proxy-status').textContent = '';
             } else {
                 // Show settings modal
                 openProxySettings();
             }
+        }
+        
+        function resetAIProxy() {
+            if (!isConnected || !aiProxyEnabled) {
+                return;
+            }
+            
+            // Disable and re-enable to reset iteration counter
+            ws.send(JSON.stringify({ proxy: { disable: true } }));
+            
+            // Re-enable after a brief delay
+            setTimeout(() => {
+                // Build full prompt with context
+                let fullPrompt = systemPrompt;
+                if (additionalContext) {
+                    fullPrompt = `Context: ${additionalContext}\n\n${systemPrompt}`;
+                }
+                
+                ws.send(JSON.stringify({ 
+                    proxy: { 
+                        enable: true, 
+                        provider: defaultProvider || 'gemini-cli',
+                        system_prompt: fullPrompt
+                    } 
+                }));
+            }, 100);
         }
         
         async function openProxySettings() {
@@ -240,18 +294,28 @@
                 } 
             }));
             
-            document.getElementById('ai-proxy-btn').style.backgroundColor = '#27ae60';
-            document.getElementById('ai-proxy-btn').textContent = '🤖 AI Proxy: ON';
+                document.getElementById('ai-proxy-btn').textContent = '🤖 AI Proxy: ON';
+                document.getElementById('ai-proxy-reset-btn').style.display = 'inline-block';
             closeProxySettings();
         }
 
         function updateProxyStatus(status) {
             if (status.enabled) {
-                const statusText = `AI: ${status.provider} | Iterations: ${status.iterations}/${status.max_iterations}`;
+                const pct = Math.round((status.iterations / status.max_iterations) * 100);
+                let color = '#00ff41';  // Matrix green
+                if (pct > 80) {
+                    color = '#ffff00';  // Yellow warning
+                } else if (pct >= 100) {
+                    color = '#ff0000';  // Red at limit
+                }
+                
+                const statusText = `🤖 ${status.provider} | 🔄 ${status.iterations}/${status.max_iterations} (${pct}%)`;
                 document.getElementById('proxy-status').textContent = statusText;
-                document.getElementById('proxy-status').style.color = '#27ae60';
+                document.getElementById('proxy-status').style.color = color;
+                document.getElementById('ai-proxy-reset-btn').style.display = 'inline-block';
             } else {
                 document.getElementById('proxy-status').textContent = '';
+                document.getElementById('ai-proxy-reset-btn').style.display = 'none';
             }
         }
 
@@ -296,6 +360,16 @@
                 })
                 .catch(e => {});
         }
+
+        // Check if auth is required
+        fetch('/api/auth/required')
+            .then(r => r.json())
+            .then(data => {
+                if (data.auth_required) {
+                    document.getElementById('auth-status').textContent = '🔒 Authentication enabled';
+                }
+            })
+            .catch(e => console.debug('Auth check not available'));
 
         // Initialize terminal and connect
         initTerminal();
