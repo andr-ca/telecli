@@ -72,7 +72,7 @@ class GeminiCLIProvider(LLMProvider):
                 stderr=asyncio.subprocess.PIPE
             )
             
-            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=30)
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=90)
             
             if process.returncode != 0:
                 error_msg = stderr.decode().strip()
@@ -152,7 +152,7 @@ class ClaudeCLIProvider(LLMProvider):
                 stderr=asyncio.subprocess.PIPE
             )
             
-            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=30)
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=90)
             
             if process.returncode != 0:
                 error_msg = stderr.decode().strip()
