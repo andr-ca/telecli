@@ -1123,6 +1123,10 @@
                     isConnected = true;
                     updateStatus('Connected', 'success');
 
+                    // Send terminal size immediately after connection
+                    sendTerminalSize();
+                    console.log('Sent terminal size after connection');
+
                     // Start stale state monitoring when connection is established
                     startStaleStateMonitoring();
                     console.log('Started stale state monitoring for connection');
