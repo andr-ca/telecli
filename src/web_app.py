@@ -532,6 +532,7 @@ async def websocket_implementation(websocket: WebSocket, client_id: str):
     
     async def ai_proxy_checker():
         """Background task to periodically check for prompts"""
+        nonlocal connection_active
         try:
             while connection_active:
                 await asyncio.sleep(0.5)  # Check every 500ms
