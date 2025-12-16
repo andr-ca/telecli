@@ -17,19 +17,35 @@ logger = logging.getLogger(__name__)
 SESSION_DISCONNECT_GRACE_PERIOD = 60  # seconds
 
 
+class SessionInfo:
+    """Metadata about a session"""
+    def __init__(self, session_id: str, client_ip: str):
+        self.session_id = session_id
+        self.client_ip = client_ip
+        self.created_at = datetime.now()
+    
+    def to_dict(self) -> dict:
+        return {
+            "session_id": self.session_id,
+            "client_ip": self.client_ip,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
 class SessionManager:
     """Manages multiple terminal sessions"""
 
     def __init__(self, max_sessions: int = Config.TERMINAL_MAX_SESSIONS):
         self.max_sessions = max_sessions
         self.sessions: dict[str, TerminalSession] = {}
+        self.session_info: dict[str, SessionInfo] = {}  # Session metadata (IP, timestamp)
         self.session_count = 0
         self.ai_proxies: dict[str, AIProxy] = {}  # AI proxy per session
         self.monitor_callback = None  # Callback for LLM monitoring
         self.disconnected_sessions: dict[str, datetime] = {}  # Track disconnected sessions
         self.cleanup_tasks: dict[str, asyncio.Task] = {}  # Pending cleanup tasks
 
-    async def get_session(self, session_id: str) -> TerminalSession:
+    async def get_session(self, session_id: str, client_ip: Optional[str] = None) -> TerminalSession:
         """Get or create a session for the given ID"""
         if session_id not in self.sessions:
             if len(self.sessions) >= self.max_sessions:
@@ -42,8 +58,9 @@ class SessionManager:
                 raise RuntimeError(f"Failed to start session {session_id}")
             
             self.sessions[session_id] = session
+            self.session_info[session_id] = SessionInfo(session_id, client_ip or "unknown")
             self.session_count += 1
-            logger.info(f"Created new session {session_id}, total sessions: {len(self.sessions)}")
+            logger.info(f"Created new session {session_id} from IP {client_ip}, total sessions: {len(self.sessions)}")
 
         return self.sessions[session_id]
 
@@ -60,9 +77,9 @@ class SessionManager:
             await self.sessions[session_id].resize(rows, cols)
             logger.debug(f"Resized session {session_id} to {rows}x{cols}")
 
-    async def get_output_stream(self, session_id: str):
+    async def get_output_stream(self, session_id: str, client_ip: Optional[str] = None):
         """Get output stream from a session"""
-        session = await self.get_session(session_id)
+        session = await self.get_session(session_id, client_ip)
         async for chunk in session.get_output_stream():
             yield chunk
 
@@ -241,6 +258,9 @@ class SessionManager:
             if session_exists:
                 try:
                     del self.sessions[session_id]
+                    # Also remove session info
+                    if session_id in self.session_info:
+                        del self.session_info[session_id]
                     logger.info(f"Closed session {session_id}, remaining sessions: {len(self.sessions)}")
                 except KeyError:
                     # Session was already removed by another thread/process
@@ -263,6 +283,7 @@ class SessionManager:
             "active_sessions": len(self.sessions),
             "max_sessions": self.max_sessions,
             "total_created": self.session_count,
+            "sessions": [info.to_dict() for info in self.session_info.values()],
         }
     
     def set_monitor_callback(self, callback):

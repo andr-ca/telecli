@@ -163,9 +163,11 @@ async def get_active_sessions():
     sessions = []
     for session_id, session in session_manager.sessions.items():
         if session.is_active:
+            info = session_manager.session_info.get(session_id)
             sessions.append({
                 "id": session_id,
-                "created_at": session_id.split('-')[-1] if '-' in session_id else "unknown",
+                "created_at": info.created_at.isoformat() if info else "unknown",
+                "client_ip": info.client_ip if info else "unknown",
                 "shell": session.shell,
                 "is_active": session.is_active
             })
@@ -178,9 +180,11 @@ async def get_active_sessions_telecli():
     sessions = []
     for session_id, session in session_manager.sessions.items():
         if session.is_active:
+            info = session_manager.session_info.get(session_id)
             sessions.append({
                 "id": session_id,
-                "created_at": session_id.split('-')[-1] if '-' in session_id else "unknown",
+                "created_at": info.created_at.isoformat() if info else "unknown",
+                "client_ip": info.client_ip if info else "unknown",
                 "shell": session.shell,
                 "is_active": session.is_active
             })
@@ -317,7 +321,15 @@ async def websocket_implementation(websocket: WebSocket, client_id: str):
             return
 
     await websocket.accept()
-    logger.info(f"WebSocket connection established for client {client_id}")
+    
+    # Extract client IP (handle reverse proxy headers)
+    client_ip = websocket.headers.get("x-forwarded-for", "").split(",")[0].strip()
+    if not client_ip:
+        client_ip = websocket.headers.get("x-real-ip", "")
+    if not client_ip and websocket.client:
+        client_ip = websocket.client.host
+    
+    logger.info(f"WebSocket connection established for client {client_id} from IP {client_ip}")
 
     # Track connection state
     connection_active = True
@@ -465,7 +477,7 @@ async def websocket_implementation(websocket: WebSocket, client_id: str):
         """Handle output from Terminal -> WebSocket"""
         nonlocal connection_active
         try:
-            async for chunk in session_manager.get_output_stream(client_id):
+            async for chunk in session_manager.get_output_stream(client_id, client_ip):
                 if not connection_active:
                     break  # Stop if connection is closed
                 
