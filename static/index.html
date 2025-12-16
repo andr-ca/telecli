@@ -92,9 +92,18 @@
                     </div>
 
                     <button id="session-btn" onclick="openSessionPicker()">📋 Sessions</button>
-                    <button id="refresh-btn" onclick="manualTerminalRefresh()" title="Refresh terminal connection">🔄
-                        Refresh</button>
-                    <button id="reset-btn" onclick="resetSession()">🔁 Reset</button>
+
+                    <!-- Reset/Refresh Submenu -->
+                    <div class="submenu-container">
+                        <button id="reset-menu-btn" onclick="toggleResetMenu()">🔁 Reset</button>
+                        <div id="reset-menu" class="submenu reset-submenu" style="display: none;">
+                            <button onclick="manualTerminalRefresh(); closeResetMenu();"
+                                title="Check connection status">🔄 Refresh Connection</button>
+                            <button onclick="resetSession(); closeResetMenu();" title="Reset terminal session">🔁 Reset
+                                Session</button>
+                        </div>
+                    </div>
+
                     <button id="llm-monitor-btn" onclick="toggleLLMMonitor()">🔍 Monitor</button>
                     <button id="auth-btn" onclick="clearAuth()" style="display: none;">🔓 Auth</button>
                 </div>
@@ -1379,6 +1388,28 @@
             if (!clickedInside) {
                 closeAllSubmenus();
             }
+        }
+
+        // Reset menu submenu functions
+        function toggleResetMenu() {
+            const menu = document.getElementById('reset-menu');
+            const isVisible = menu.style.display !== 'none';
+
+            // Close all other submenus first
+            closeAllSubmenus();
+
+            if (!isVisible) {
+                menu.style.display = 'block';
+                // Close menu when clicking outside
+                setTimeout(() => {
+                    document.addEventListener('click', closeControlsMenuOnClickOutside);
+                }, 10);
+            }
+        }
+
+        function closeResetMenu() {
+            const menu = document.getElementById('reset-menu');
+            menu.style.display = 'none';
         }
 
         // Mobile controls submenu functions

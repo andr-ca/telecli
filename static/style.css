@@ -1018,6 +1018,19 @@ body.theme-modern .submenu-divider {
     min-width: 40px !important;
 }
 
+/* Reset submenu styling */
+.reset-submenu {
+    min-width: 180px;
+    max-width: 220px;
+    padding: 8px 0;
+}
+
+.reset-submenu button {
+    padding: 10px 16px;
+    font-size: 14px;
+    text-align: left;
+}
+
 /* Mobile controls submenu styling */
 .mobile-controls-submenu {
     min-width: 220px;
