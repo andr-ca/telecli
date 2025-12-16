@@ -329,9 +329,14 @@ async def websocket_implementation(websocket: WebSocket, client_id: str):
     if not client_ip and websocket.client:
         client_ip = websocket.client.host
     
-    # Register this connection
+    # Register this connection and check if we need to close old ones
     connection_count = session_manager.register_connection(client_id)
     logger.info(f"WebSocket connection established for client {client_id} from IP {client_ip} (connection #{connection_count})")
+    
+    # CRITICAL FIX: Close old connections if multiple exist
+    connection_time = session_manager.mark_latest_connection(client_id)
+    if connection_count > 1:
+        logger.warning(f"🔧 ENFORCING SINGLE CONNECTION: New connection will supersede old ones for {client_id}")
 
     # Track connection state
     connection_active = True
@@ -390,6 +395,12 @@ async def websocket_implementation(websocket: WebSocket, client_id: str):
         nonlocal connection_active
         try:
             while connection_active:
+                # Check if this connection is outdated (newer connection exists)
+                if session_manager.is_connection_outdated(client_id, connection_time):
+                    logger.info(f"🔄 Connection for {client_id} is outdated, closing gracefully")
+                    connection_active = False
+                    break
+                
                 data = await websocket.receive_text()
                 logger.info(f"Received from client {client_id}: {data[:100]}")
                 logger.debug(f"Input handler processing message, connection_active={connection_active}")
@@ -493,6 +504,12 @@ async def websocket_implementation(websocket: WebSocket, client_id: str):
                 if not connection_active:
                     break  # Stop if connection is closed
                 
+                # Check if this connection is outdated (newer connection exists)
+                if session_manager.is_connection_outdated(client_id, connection_time):
+                    logger.info(f"🔄 Output handler for {client_id} is outdated, stopping")
+                    connection_active = False
+                    break
+                
                 if chunk:
                     # Check if AI proxy is enabled for this session
                     ai_proxy = session_manager.get_ai_proxy(client_id)
@@ -522,6 +539,13 @@ async def websocket_implementation(websocket: WebSocket, client_id: str):
                 await asyncio.sleep(0.5)  # Check every 500ms
                 if not connection_active:
                     break
+                
+                # Check if this connection is outdated (newer connection exists)
+                if session_manager.is_connection_outdated(client_id, connection_time):
+                    logger.info(f"🔄 AI proxy checker for {client_id} is outdated, stopping")
+                    connection_active = False
+                    break
+                
                 ai_proxy = session_manager.get_ai_proxy(client_id)
                 if ai_proxy and ai_proxy.is_enabled():
                     await ai_proxy.process_output()

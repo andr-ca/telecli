@@ -45,6 +45,7 @@ class SessionManager:
         self.disconnected_sessions: dict[str, datetime] = {}  # Track disconnected sessions
         self.cleanup_tasks: dict[str, asyncio.Task] = {}  # Pending cleanup tasks
         self.active_connections: dict[str, int] = {}  # Track active WebSocket connections per session
+        self.latest_connection_time: dict[str, datetime] = {}  # Track latest connection time per session
 
     async def get_session(self, session_id: str, client_ip: Optional[str] = None) -> TerminalSession:
         """Get or create a session for the given ID"""
@@ -88,7 +89,33 @@ class SessionManager:
         self.active_connections[session_id] += 1
         connection_count = self.active_connections[session_id]
         logger.info(f"Registered connection for {session_id}, total connections: {connection_count}")
+        
+        # CRITICAL: Warn about multiple connections - this causes duplication
+        if connection_count > 1:
+            logger.error(f"🚨 MULTIPLE CONNECTIONS ({connection_count}) for session {session_id} - WILL CAUSE DUPLICATION!")
+            logger.error(f"🚨 This is the root cause of terminal output duplication!")
+        
         return connection_count
+
+    def should_close_old_connections(self, session_id: str) -> bool:
+        """Check if old connections should be closed for this session"""
+        connection_count = self.active_connections.get(session_id, 0)
+        return connection_count > 1
+
+    def mark_latest_connection(self, session_id: str) -> datetime:
+        """Mark the latest connection time for a session"""
+        connection_time = datetime.now()
+        self.latest_connection_time[session_id] = connection_time
+        logger.info(f"Marked latest connection time for {session_id}: {connection_time}")
+        return connection_time
+
+    def is_connection_outdated(self, session_id: str, connection_time: datetime) -> bool:
+        """Check if a connection is outdated (newer connection exists)"""
+        latest_time = self.latest_connection_time.get(session_id)
+        if latest_time and connection_time < latest_time:
+            logger.info(f"Connection for {session_id} is outdated: {connection_time} < {latest_time}")
+            return True
+        return False
 
     def unregister_connection(self, session_id: str):
         """Unregister a WebSocket connection for a session"""
@@ -98,7 +125,10 @@ class SessionManager:
             logger.info(f"Unregistered connection for {session_id}, remaining connections: {connection_count}")
             if self.active_connections[session_id] <= 0:
                 del self.active_connections[session_id]
-                logger.info(f"No more connections for {session_id}")
+                # Also clean up connection time tracking when no connections remain
+                if session_id in self.latest_connection_time:
+                    del self.latest_connection_time[session_id]
+                logger.info(f"No more connections for {session_id}, cleaned up tracking")
 
     async def get_output_stream(self, session_id: str, client_ip: Optional[str] = None):
         """Get output stream from a session"""
