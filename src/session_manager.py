@@ -53,6 +53,7 @@ class SessionManager:
                 oldest_id = next(iter(self.sessions))
                 await self.close_session(oldest_id)
 
+            logger.info(f"Creating NEW terminal session {session_id} from IP {client_ip}")
             session = TerminalSession(session_id)
             if not await session.start():
                 raise RuntimeError(f"Failed to start session {session_id}")
@@ -61,6 +62,8 @@ class SessionManager:
             self.session_info[session_id] = SessionInfo(session_id, client_ip or "unknown")
             self.session_count += 1
             logger.info(f"Created new session {session_id} from IP {client_ip}, total sessions: {len(self.sessions)}")
+        else:
+            logger.info(f"Reusing EXISTING terminal session {session_id}")
 
         return self.sessions[session_id]
 

@@ -67,23 +67,29 @@ class TerminalSession:
     async def _broadcast_output(self, chunk: Optional[str]):
         """Broadcast output to all subscribers"""
         if not self.output_subscribers:
+            logger.debug(f"No subscribers for session {self.session_id}, skipping broadcast")
             return
+        
+        logger.debug(f"Broadcasting to {len(self.output_subscribers)} subscribers for session {self.session_id}")
         
         # Remove closed/full queues and broadcast to active ones
         active_subscribers = []
-        for queue in self.output_subscribers:
+        for i, queue in enumerate(self.output_subscribers):
             try:
                 if chunk is not None:
                     queue.put_nowait(chunk)
+                    logger.debug(f"Sent chunk to subscriber {i} for session {self.session_id}")
                 else:
                     queue.put_nowait(None)  # End of stream signal
+                    logger.debug(f"Sent end signal to subscriber {i} for session {self.session_id}")
                 active_subscribers.append(queue)
             except asyncio.QueueFull:
-                logger.warning(f"Subscriber queue full for session {self.session_id}, dropping")
+                logger.warning(f"Subscriber queue full for session {self.session_id}, dropping subscriber {i}")
             except Exception as e:
-                logger.debug(f"Error broadcasting to subscriber: {e}")
+                logger.debug(f"Error broadcasting to subscriber {i}: {e}")
         
         self.output_subscribers = active_subscribers
+        logger.debug(f"Active subscribers after broadcast: {len(self.output_subscribers)}")
 
     async def start(self) -> bool:
         """Start a terminal session with background output reading"""
