@@ -89,19 +89,10 @@ class SessionManager:
             self.active_connections[session_id] = 0
             self.active_websockets[session_id] = []
         
-        # CRITICAL FIX: Close all existing connections immediately
-        if self.active_websockets[session_id]:
-            logger.warning(f"🔧 CLOSING {len(self.active_websockets[session_id])} existing connections for {session_id}")
-            for old_ws in self.active_websockets[session_id]:
-                try:
-                    # Save task to prevent garbage collection
-                    close_task = asyncio.create_task(old_ws.close(code=1000, reason="Superseded by new connection"))
-                    logger.info(f"✅ Scheduled close for old connection for {session_id}")
-                except Exception as e:
-                    logger.debug(f"Error closing old connection: {e}")
-            # Clear the list
-            self.active_websockets[session_id] = []
-            self.active_connections[session_id] = 0
+        # TEMPORARY: Disable immediate connection closure to allow terminal output to complete
+        # Let the time-based detection handle connection cleanup instead
+        if len(self.active_websockets[session_id]) > 2:
+            logger.warning(f"⚠️ Multiple connections ({len(self.active_websockets[session_id])}) for {session_id} - relying on time-based cleanup")
         
         # Add the new connection
         if websocket:
@@ -128,8 +119,13 @@ class SessionManager:
         """Check if a connection is outdated (newer connection exists)"""
         latest_time = self.latest_connection_time.get(session_id)
         if latest_time and connection_time < latest_time:
-            logger.info(f"Connection for {session_id} is outdated: {connection_time} < {latest_time}")
-            return True
+            # Add a grace period to allow terminal output to complete
+            time_diff = (latest_time - connection_time).total_seconds()
+            if time_diff > 1.0:  # Only consider outdated if more than 1 second old
+                logger.info(f"Connection for {session_id} is outdated: {connection_time} < {latest_time} (diff: {time_diff:.1f}s)")
+                return True
+            else:
+                logger.debug(f"Connection for {session_id} is newer but within grace period: {time_diff:.1f}s")
         return False
 
     def unregister_connection(self, session_id: str, websocket=None):
