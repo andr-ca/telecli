@@ -329,7 +329,9 @@ async def websocket_implementation(websocket: WebSocket, client_id: str):
     if not client_ip and websocket.client:
         client_ip = websocket.client.host
     
-    logger.info(f"WebSocket connection established for client {client_id} from IP {client_ip}")
+    # Register this connection
+    connection_count = session_manager.register_connection(client_id)
+    logger.info(f"WebSocket connection established for client {client_id} from IP {client_ip} (connection #{connection_count})")
 
     # Track connection state
     connection_active = True
@@ -550,7 +552,12 @@ async def websocket_implementation(websocket: WebSocket, client_id: str):
     finally:
         connection_active = False
         logger.info(f"WebSocket connection closed for client {client_id}")
-        logger.info(f"Connection closed - connection_active set to False")
+        
+        # Unregister this connection
+        try:
+            session_manager.unregister_connection(client_id)
+        except Exception as e:
+            logger.debug(f"Error unregistering connection for {client_id}: {e}")
         
         # Clear the monitor callback for this session's AI proxy
         try:

@@ -44,6 +44,7 @@ class SessionManager:
         self.monitor_callback = None  # Callback for LLM monitoring
         self.disconnected_sessions: dict[str, datetime] = {}  # Track disconnected sessions
         self.cleanup_tasks: dict[str, asyncio.Task] = {}  # Pending cleanup tasks
+        self.active_connections: dict[str, int] = {}  # Track active WebSocket connections per session
 
     async def get_session(self, session_id: str, client_ip: Optional[str] = None) -> TerminalSession:
         """Get or create a session for the given ID"""
@@ -80,8 +81,32 @@ class SessionManager:
             await self.sessions[session_id].resize(rows, cols)
             logger.debug(f"Resized session {session_id} to {rows}x{cols}")
 
+    def register_connection(self, session_id: str) -> int:
+        """Register a new WebSocket connection for a session"""
+        if session_id not in self.active_connections:
+            self.active_connections[session_id] = 0
+        self.active_connections[session_id] += 1
+        connection_count = self.active_connections[session_id]
+        logger.info(f"Registered connection for {session_id}, total connections: {connection_count}")
+        return connection_count
+
+    def unregister_connection(self, session_id: str):
+        """Unregister a WebSocket connection for a session"""
+        if session_id in self.active_connections:
+            self.active_connections[session_id] -= 1
+            connection_count = self.active_connections[session_id]
+            logger.info(f"Unregistered connection for {session_id}, remaining connections: {connection_count}")
+            if self.active_connections[session_id] <= 0:
+                del self.active_connections[session_id]
+                logger.info(f"No more connections for {session_id}")
+
     async def get_output_stream(self, session_id: str, client_ip: Optional[str] = None):
         """Get output stream from a session"""
+        # Check for multiple connections
+        connection_count = self.active_connections.get(session_id, 0)
+        if connection_count > 1:
+            logger.warning(f"Multiple connections ({connection_count}) detected for session {session_id} - this may cause duplication!")
+        
         session = await self.get_session(session_id, client_ip)
         logger.debug(f"SessionManager: Starting output stream for {session_id}")
         async for chunk in session.get_output_stream():

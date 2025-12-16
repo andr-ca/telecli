@@ -652,7 +652,10 @@ Provide a concise summary:"""
         3. Cooldown period has passed since last AI response
         """
         if not self.enabled:
+            logger.debug("AI Proxy not enabled, skipping process_output")
             return
+        
+        logger.debug(f"AI Proxy process_output called - enabled: {self.enabled}, buffer size: {len(self.output_buffer)}")
         
         if self.iteration_count >= self.max_iterations:
             logger.warning(f"AI Proxy max iterations ({self.max_iterations}) reached, disabling")
