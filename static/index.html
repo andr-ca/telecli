@@ -18,49 +18,81 @@
             <h1>🖥️ TeleCLI</h1>
             <p>Web-based Terminal Interface</p>
             <div class="controls">
-                <button id="ai-proxy-btn" onclick="toggleAIProxy()">🤖 AI Proxy: OFF</button>
-                <button id="ai-proxy-reset-btn" onclick="resetAIProxy()" style="display: none;">🔄 Reset AI</button>
-                <!-- Controls submenu -->
-                <div class="submenu-container">
-                    <button id="controls-btn" onclick="toggleControlsMenu()">⚙️ Controls</button>
-                    <div id="controls-menu" class="submenu" style="display: none;">
-                        <button onclick="copySelection()" title="Copy selected text">📄 Copy</button>
-                        <button onclick="pasteFromClipboard()" title="Paste from clipboard">📥 Paste</button>
-                        <button onclick="sendInterrupt()" title="Send interrupt signal (cancel command)">⌧
-                            Ctrl+C</button>
-                        <div class="submenu-divider"></div>
-                        <button onclick="sendKey('Tab')" title="Tab key">⇥ Tab</button>
-                        <button onclick="sendKey('Escape')" title="Escape key">⎋ Esc</button>
-                        <button onclick="sendKey('Enter')" title="Enter key">↵ Enter</button>
+                <!-- Primary Controls Row -->
+                <div class="controls-row primary-controls">
+                    <button id="ai-proxy-btn" onclick="toggleAIProxy()">🤖 AI Proxy: OFF</button>
+                    <button id="ai-proxy-reset-btn" onclick="resetAIProxy()" style="display: none;">🔄 Reset AI</button>
+
+                    <!-- Mobile Controls Menu -->
+                    <div class="submenu-container">
+                        <button id="mobile-controls-btn" onclick="toggleMobileControlsMenu()">📱 Mobile</button>
+                        <div id="mobile-controls-menu" class="submenu mobile-controls-submenu" style="display: none;">
+                            <!-- Arrow Keys Section -->
+                            <div class="mobile-section">
+                                <div class="mobile-section-title">Arrow Keys</div>
+                                <div class="arrow-keys-grid">
+                                    <div class="arrow-row">
+                                        <button onclick="sendArrowKey('ArrowUp')" title="Up arrow">↑</button>
+                                    </div>
+                                    <div class="arrow-row">
+                                        <button onclick="sendArrowKey('ArrowLeft')" title="Left arrow">←</button>
+                                        <button onclick="sendArrowKey('ArrowDown')" title="Down arrow">↓</button>
+                                        <button onclick="sendArrowKey('ArrowRight')" title="Right arrow">→</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="submenu-divider"></div>
+
+                            <!-- Special Keys Section -->
+                            <div class="mobile-section">
+                                <div class="mobile-section-title">Special Keys</div>
+                                <div class="mobile-keys-row">
+                                    <button onclick="sendKey('Tab')" title="Tab key">⇥ Tab</button>
+                                    <button onclick="sendKey('Escape')" title="Escape key">⎋ Esc</button>
+                                    <button onclick="sendKey('Enter')" title="Enter key">↵ Enter</button>
+                                </div>
+                            </div>
+
+                            <div class="submenu-divider"></div>
+
+                            <!-- Navigation Keys Section -->
+                            <div class="mobile-section">
+                                <div class="mobile-section-title">Navigation</div>
+                                <div class="mobile-keys-row">
+                                    <button onclick="sendKey('Home')" title="Home key">⇱ Home</button>
+                                    <button onclick="sendKey('End')" title="End key">⇲ End</button>
+                                </div>
+                                <div class="mobile-keys-row">
+                                    <button onclick="sendKey('PageUp')" title="Page Up">⇞ PgUp</button>
+                                    <button onclick="sendKey('PageDown')" title="Page Down">⇟ PgDn</button>
+                                </div>
+                            </div>
+
+                            <div class="submenu-divider"></div>
+
+                            <!-- Clipboard Section -->
+                            <div class="mobile-section">
+                                <div class="mobile-section-title">Clipboard</div>
+                                <div class="mobile-keys-row">
+                                    <button onclick="copySelection()" title="Copy selected text">📄 Copy</button>
+                                    <button onclick="pasteFromClipboard()" title="Paste from clipboard">📥
+                                        Paste</button>
+                                    <button onclick="sendInterrupt()" title="Send interrupt signal">⌧ Ctrl+C</button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
-                <!-- Mobile Navigation submenu -->
-                <div class="submenu-container">
-                    <button id="navigation-btn" onclick="toggleNavigationMenu()">🧭 Navigation</button>
-                    <div id="navigation-menu" class="submenu" style="display: none;">
-                        <div class="arrow-keys-grid">
-                            <div class="arrow-row">
-                                <button onclick="sendArrowKey('ArrowUp')" title="Up arrow">↑</button>
-                            </div>
-                            <div class="arrow-row">
-                                <button onclick="sendArrowKey('ArrowLeft')" title="Left arrow">←</button>
-                                <button onclick="sendArrowKey('ArrowDown')" title="Down arrow">↓</button>
-                                <button onclick="sendArrowKey('ArrowRight')" title="Right arrow">→</button>
-                            </div>
-                        </div>
-                        <div class="submenu-divider"></div>
-                        <button onclick="sendKey('Home')" title="Home key">⇱ Home</button>
-                        <button onclick="sendKey('End')" title="End key">⇲ End</button>
-                        <button onclick="sendKey('PageUp')" title="Page Up">⇞ PgUp</button>
-                        <button onclick="sendKey('PageDown')" title="Page Down">⇟ PgDn</button>
-                    </div>
+                <!-- Secondary Controls Row -->
+                <div class="controls-row secondary-controls">
+                    <button id="session-btn" onclick="openSessionPicker()">📋 Sessions</button>
+                    <button id="reset-btn" onclick="resetSession()">🔁 Reset</button>
+                    <button id="llm-monitor-btn" onclick="toggleLLMMonitor()">🔍 Monitor</button>
+                    <button id="theme-btn" onclick="toggleTheme()">🎨 Theme</button>
+                    <button id="auth-btn" onclick="clearAuth()" style="display: none;">🔓 Auth</button>
                 </div>
-                <button id="reset-btn" onclick="resetSession()">🔁 Reset Terminal</button>
-                <button id="session-btn" onclick="openSessionPicker()">📋 Sessions</button>
-                <button id="auth-btn" onclick="clearAuth()" style="display: none;">🔓 Clear Auth</button>
-                <button id="llm-monitor-btn" onclick="toggleLLMMonitor()">🔍 LLM Monitor</button>
-                <button id="theme-btn" onclick="toggleTheme()">🎨 Theme</button>
             </div>
             <div id="proxy-status" style="margin-top: 10px; font-size: 14px; font-weight: bold; color: #b0b0b0;"></div>
             <div id="session-status" style="margin-top: 5px; font-size: 12px; color: #b0b0b0;"></div>
@@ -1289,9 +1321,9 @@
             }
         }
 
-        // Navigation submenu functions
-        function toggleNavigationMenu() {
-            const menu = document.getElementById('navigation-menu');
+        // Mobile controls submenu functions
+        function toggleMobileControlsMenu() {
+            const menu = document.getElementById('mobile-controls-menu');
             const isVisible = menu.style.display !== 'none';
 
             // Close all other submenus first

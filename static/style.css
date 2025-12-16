@@ -142,6 +142,27 @@ body.theme-modern header p {
 
 .controls {
     margin-top: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.controls-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+    align-items: center;
+}
+
+.primary-controls {
+    margin-bottom: 4px;
+}
+
+.secondary-controls button {
+    font-size: 12px;
+    padding: 6px 12px;
+    min-width: auto;
 }
 
 .terminal {
@@ -912,6 +933,15 @@ body.theme-modern .submenu button:hover {
     background: rgba(137, 180, 250, 0.1);
 }
 
+/* Mobile section titles theme styling */
+body.theme-matrix .mobile-section-title {
+    color: #00ff41;
+}
+
+body.theme-modern .mobile-section-title {
+    color: #89b4fa;
+}
+
 /* Submenu divider */
 .submenu-divider {
     height: 1px;
@@ -955,13 +985,55 @@ body.theme-modern .submenu-divider {
     min-width: 40px !important;
 }
 
-/* Navigation submenu specific styling */
-#navigation-menu {
-    min-width: 180px;
+/* Mobile controls submenu styling */
+.mobile-controls-submenu {
+    min-width: 220px;
+    max-width: 280px;
+    padding: 12px 0;
 }
 
-#navigation-menu .submenu-divider {
-    margin: 12px 8px 8px 8px;
+.mobile-section {
+    padding: 8px 12px;
+}
+
+.mobile-section-title {
+    font-size: 11px;
+    font-weight: bold;
+    margin-bottom: 8px;
+    opacity: 0.8;
+    text-align: center;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.mobile-keys-row {
+    display: flex;
+    gap: 6px;
+    justify-content: center;
+    margin-bottom: 6px;
+}
+
+.mobile-keys-row:last-child {
+    margin-bottom: 0;
+}
+
+.mobile-keys-row button {
+    flex: 1;
+    min-width: 60px;
+    padding: 8px 4px !important;
+    font-size: 11px !important;
+    text-align: center;
+}
+
+/* Enhanced arrow keys grid for mobile menu */
+.mobile-controls-submenu .arrow-keys-grid {
+    padding: 4px;
+}
+
+.mobile-controls-submenu .arrow-keys-grid button {
+    width: 36px !important;
+    height: 36px !important;
+    font-size: 16px !important;
 }
 
 /* Mobile responsive adjustments */
@@ -986,23 +1058,71 @@ body.theme-modern .submenu-divider {
 @media (max-width: 768px) {
     .container {
         height: 100vh;
+        max-width: 100%;
+        margin: 0;
+        border-radius: 0;
     }
 
     body.theme-matrix header h1,
     body.theme-modern header h1 {
         font-size: 1.5em;
+        margin-bottom: 2px;
     }
 
-    .terminal-input {
-        flex-direction: column;
+    header p {
+        font-size: 0.8em;
+        margin-bottom: 8px;
     }
 
-    button {
-        width: 100%;
+    .controls {
+        margin-top: 8px;
+    }
+
+    .controls-row {
+        gap: 6px;
+    }
+
+    .primary-controls button {
+        font-size: 13px;
+        padding: 8px 12px;
+    }
+
+    .secondary-controls button {
+        font-size: 11px;
+        padding: 5px 8px;
+        min-width: 60px;
+    }
+
+    .mobile-controls-submenu {
+        min-width: 200px;
+        max-width: 90vw;
+        left: 50%;
+        transform: translateX(-50%);
+    }
+
+    .mobile-keys-row button {
+        min-width: 50px;
+        font-size: 10px !important;
+        padding: 6px 2px !important;
+    }
+
+    .mobile-controls-submenu .arrow-keys-grid button {
+        width: 32px !important;
+        height: 32px !important;
+        font-size: 14px !important;
     }
 
     footer {
         flex-direction: column;
-        gap: 8px;
+        gap: 4px;
+        padding: 8px 12px;
+        font-size: 11px;
+    }
+
+    #proxy-status,
+    #session-status,
+    #auth-status {
+        font-size: 11px;
+        margin-top: 3px;
     }
 }
