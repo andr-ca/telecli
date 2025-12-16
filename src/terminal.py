@@ -23,7 +23,7 @@ class TerminalSession:
         self.shell = shell or Config.TERMINAL_SHELL
         self.process: Optional[pexpect.spawn] = None
         self.is_active = False
-        self.output_queue: asyncio.Queue = asyncio.Queue(maxsize=100)  # Limit queue size for better performance
+        self.output_queue: asyncio.Queue = asyncio.Queue()  # Unlimited queue to prevent blocking
         self.read_task: Optional[asyncio.Task] = None
 
     def _clean_output(self, text: str) -> str:
@@ -46,9 +46,7 @@ class TerminalSession:
                         # Clean the output
                         cleaned_chunk = self._clean_output(chunk)
                         if cleaned_chunk:  # Only queue if there's content after cleaning
-                            # Only log in debug mode to reduce overhead
-                            if logger.isEnabledFor(logging.DEBUG):
-                                logger.debug(f"Read {len(cleaned_chunk)} bytes from session {self.session_id}")
+                            logger.debug(f"Read {len(cleaned_chunk)} bytes from session {self.session_id}: {repr(cleaned_chunk[:50])}")
                             await self.output_queue.put(cleaned_chunk)
                 except pexpect.TIMEOUT:
                     # No data available, very small delay to avoid busy loop but maintain responsiveness
