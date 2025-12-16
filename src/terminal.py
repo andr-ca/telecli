@@ -186,12 +186,11 @@ class TerminalSession:
             return
         
         try:
-            # Send a sequence that will refresh the prompt without executing anything
-            # This is more effective than just \r for showing the cursor
-            self.process.send('\x15')  # Ctrl+U (clear line)
-            await asyncio.sleep(0.05)  # Brief delay
-            self.process.send('\r')    # Enter to show fresh prompt
-            logger.info(f"Refreshed prompt for session {self.session_id}")
+            # Send a terminal status query - this is invisible and non-disruptive
+            # It just triggers the terminal to respond, which helps xterm.js show the cursor
+            # ESC[5n = Device Status Report (DSR) - terminal responds with ESC[0n
+            self.process.send('\x1b[5n')
+            logger.debug(f"Sent terminal status query for session {self.session_id}")
         except Exception as e:
             logger.warning(f"Failed to refresh prompt for session {self.session_id}: {e}")
 

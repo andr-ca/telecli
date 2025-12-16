@@ -89,20 +89,31 @@ class SessionManager:
             await self.sessions[session_id].resize(rows, cols)
             logger.debug(f"Resized session {session_id} to {rows}x{cols}")
 
-    def register_connection(self, session_id: str, websocket=None) -> None:
-        """Register a WebSocket connection for a session (simple - one connection per session)"""
-        # Close any existing connection for this session
+    def register_connection(self, session_id: str, websocket=None) -> bool:
+        """Register a WebSocket connection for a session (simple - one connection per session)
+        
+        Returns:
+            True if connection was registered, False if connection already exists
+        """
+        # Check if there's already an active connection for this session
         if session_id in self.active_websocket and self.active_websocket[session_id]:
             old_ws = self.active_websocket[session_id]
-            logger.info(f"Replacing existing connection for {session_id}")
+            # Check if the old connection is still open
             try:
-                asyncio.create_task(old_ws.close(code=1000, reason="Replaced by new connection"))
+                # If old websocket is the same object, it's a duplicate call
+                if old_ws == websocket:
+                    logger.debug(f"Same websocket already registered for {session_id}")
+                    return True
+                # If old websocket exists and is different, reject the new one
+                logger.warning(f"Connection already exists for {session_id}, rejecting new connection")
+                return False
             except Exception as e:
-                logger.debug(f"Error closing old connection: {e}")
+                logger.debug(f"Error checking old connection: {e}")
         
         # Store the new connection
         self.active_websocket[session_id] = websocket
         logger.info(f"Registered connection for {session_id}")
+        return True
 
     def unregister_connection(self, session_id: str, websocket=None):
         """Unregister a WebSocket connection for a session"""

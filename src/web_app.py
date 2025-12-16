@@ -333,7 +333,12 @@ async def websocket_implementation(websocket: WebSocket, client_id: str):
     connection_active = True
     
     # Register this connection (simple - one connection per session)
-    session_manager.register_connection(client_id, websocket)
+    # If registration fails, it means there's already an active connection
+    if not session_manager.register_connection(client_id, websocket):
+        logger.warning(f"Connection already exists for {client_id}, closing duplicate")
+        await websocket.close(code=1000, reason="Connection already exists")
+        return
+    
     logger.info(f"WebSocket connected for {client_id} from IP {client_ip}")
     
     # Set up LLM monitoring callback for this client
