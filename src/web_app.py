@@ -337,8 +337,8 @@ async def websocket_implementation(websocket: WebSocket, client_id: str):
     connection_count = await session_manager.register_connection(client_id, websocket)
     logger.info(f"WebSocket connection established for client {client_id} from IP {client_ip} (connection #{connection_count})")
     
-    # Mark connection time for compatibility
-    connection_time = session_manager.mark_latest_connection(client_id)
+    # Mark connection time for tracking (used by connection management)
+    session_manager.mark_latest_connection(client_id)
     
     # Set up LLM monitoring callback for this client
     async def llm_monitor_callback(entry_type: str, data: dict):
@@ -398,11 +398,8 @@ async def websocket_implementation(websocket: WebSocket, client_id: str):
         nonlocal connection_active
         try:
             while connection_active:
-                # Check if this connection is outdated (newer connection exists)
-                if session_manager.is_connection_outdated(client_id, connection_time):
-                    logger.info(f"🔄 Connection for {client_id} is outdated, closing gracefully")
-                    connection_active = False
-                    break
+                # Connection management will close old connections via WebSocket close
+                # No need to check for outdated connections here
                 
                 data = await websocket.receive_text()
                 logger.info(f"Received from client {client_id}: {data[:100]}")
@@ -507,11 +504,8 @@ async def websocket_implementation(websocket: WebSocket, client_id: str):
                 if not connection_active:
                     break  # Stop if connection is closed
                 
-                # Check if this connection is outdated (newer connection exists)
-                if session_manager.is_connection_outdated(client_id, connection_time):
-                    logger.info(f"🔄 Output handler for {client_id} is outdated, stopping")
-                    connection_active = False
-                    break
+                # Connection management will close old connections via WebSocket close
+                # No need to check for outdated connections here
                 
                 if chunk:
                     # Check if AI proxy is enabled for this session
@@ -544,11 +538,8 @@ async def websocket_implementation(websocket: WebSocket, client_id: str):
                 if not connection_active:
                     break
                 
-                # Check if this connection is outdated (newer connection exists)
-                if session_manager.is_connection_outdated(client_id, connection_time):
-                    logger.info(f"🔄 AI proxy checker for {client_id} is outdated, stopping")
-                    connection_active = False
-                    break
+                # Don't stop AI proxy checker based on connection time - only stop when connection is actually closed
+                # The connection management will close old connections, which will set connection_active = False
                 
                 ai_proxy = session_manager.get_ai_proxy(client_id)
                 if ai_proxy and ai_proxy.is_enabled():
