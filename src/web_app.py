@@ -355,38 +355,11 @@ async def websocket_implementation(websocket: WebSocket, client_id: str):
     if session_existed:
         # Mark session as reconnected (cancels any pending cleanup)
         await session_manager.mark_session_reconnected(client_id)
-        try:
-            session = await session_manager.get_session(client_id)
-            logger.info(f"Reconnecting to existing session {client_id} - applying terminal refresh")
-            
-            # Wait a bit longer to ensure connection is fully established
-            await asyncio.sleep(0.2)
-            
-            # Try multiple refresh strategies for better reliability
-            try:
-                # Strategy 1: Space + backspace (gentle refresh)
-                await session.send_input(" \b", newline=False)
-                await asyncio.sleep(0.1)
-                
-                # Strategy 2: Send a newline to trigger prompt redraw
-                await session.send_input("", newline=True)
-                await asyncio.sleep(0.1)
-                
-                # Strategy 3: Send Ctrl+L (clear screen) as last resort if needed
-                # This is more aggressive but ensures terminal responsiveness
-                await session.send_input("\x0C", newline=False)
-                
-                logger.info(f"Successfully applied terminal refresh strategies to session {client_id}")
-                
-            except Exception as refresh_error:
-                logger.warning(f"Terminal refresh failed for session {client_id}: {refresh_error}")
-                # Even if refresh fails, continue with the connection
-                
-        except Exception as e:
-            logger.warning(f"Could not refresh existing session {client_id}: {e}")
-            # Continue anyway - the session might still work
+        logger.info(f"Reconnecting to existing session {client_id}")
+        # No refresh commands needed - the terminal state is preserved
+        # Sending refresh commands would disrupt the user's current work
     else:
-        logger.debug(f"New session {client_id} - no refresh needed")
+        logger.debug(f"New session {client_id} - creating fresh terminal")
 
     async def handle_input():
         """Handle input from WebSocket -> Terminal"""
