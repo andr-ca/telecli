@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TeleCLI - Terminal</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="" id="main-stylesheet">
     <!-- xterm.js for full terminal emulation -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css" />
     <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
@@ -15,21 +15,91 @@
 <body>
     <div class="container">
         <header>
-            <h1>🖥️ TeleCLI</h1>
-            <p>Web-based Terminal Interface</p>
-            <div class="controls">
-                <button id="ai-proxy-btn" onclick="toggleAIProxy()">🤖 AI Proxy: OFF</button>
-                <button id="ai-proxy-reset-btn" onclick="resetAIProxy()" style="display: none;">🔄 Reset AI</button>
-                <button id="ctrl-c-btn" onclick="sendCtrlC()">⌧ Ctrl+C</button>
-                <button id="reset-btn" onclick="resetSession()">🔁 Reset Terminal</button>
-                <button id="session-btn" onclick="openSessionPicker()">📋 Sessions</button>
-                <button id="auth-btn" onclick="clearAuth()" style="display: none;">🔓 Clear Auth</button>
-                <button id="llm-monitor-btn" onclick="toggleLLMMonitor()">🔍 LLM Monitor</button>
-                <button id="theme-btn" onclick="toggleTheme()">🎨 Theme</button>
+            <div class="header-compact">
+                <div class="title-section">
+                    <h1 id="logo" onclick="toggleTheme()"
+                        onkeydown="if(event.key==='Enter'||event.key===' ')toggleTheme()" tabindex="0"
+                        style="cursor: pointer;" title="Click to switch theme">🖥️ TeleCLI</h1>
+                    <div class="status-inline">
+                        <span id="status-compact">Connecting...</span>
+                        <span id="session-compact"></span>
+                    </div>
+                </div>
+
+                <div class="controls-compact">
+                    <button id="ai-proxy-btn" onclick="toggleAIProxy()">🤖 AI Proxy: OFF</button>
+                    <button id="ai-proxy-reset-btn" onclick="resetAIProxy()" style="display: none;">🔄 Reset</button>
+
+                    <!-- Mobile Controls Menu -->
+                    <div class="submenu-container">
+                        <button id="mobile-controls-btn" onclick="toggleMobileControlsMenu()">📱 Mobile</button>
+                        <div id="mobile-controls-menu" class="submenu mobile-controls-submenu" style="display: none;">
+                            <!-- Arrow Keys Section -->
+                            <div class="mobile-section">
+                                <div class="mobile-section-title">Arrow Keys</div>
+                                <div class="arrow-keys-grid">
+                                    <div class="arrow-row">
+                                        <button onclick="sendArrowKey('ArrowUp')" title="Up arrow">↑</button>
+                                    </div>
+                                    <div class="arrow-row">
+                                        <button onclick="sendArrowKey('ArrowLeft')" title="Left arrow">←</button>
+                                        <button onclick="sendArrowKey('ArrowDown')" title="Down arrow">↓</button>
+                                        <button onclick="sendArrowKey('ArrowRight')" title="Right arrow">→</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="submenu-divider"></div>
+
+                            <!-- Special Keys Section -->
+                            <div class="mobile-section">
+                                <div class="mobile-section-title">Special Keys</div>
+                                <div class="mobile-keys-row">
+                                    <button onclick="sendKey('Tab')" title="Tab key">⇥ Tab</button>
+                                    <button onclick="sendKey('Escape')" title="Escape key">⎋ Esc</button>
+                                    <button onclick="sendKey('Enter')" title="Enter key">↵ Enter</button>
+                                </div>
+                            </div>
+
+                            <div class="submenu-divider"></div>
+
+                            <!-- Navigation Keys Section -->
+                            <div class="mobile-section">
+                                <div class="mobile-section-title">Navigation</div>
+                                <div class="mobile-keys-row">
+                                    <button onclick="sendKey('Home')" title="Home key">⇱ Home</button>
+                                    <button onclick="sendKey('End')" title="End key">⇲ End</button>
+                                </div>
+                                <div class="mobile-keys-row">
+                                    <button onclick="sendKey('PageUp')" title="Page Up">⇞ PgUp</button>
+                                    <button onclick="sendKey('PageDown')" title="Page Down">⇟ PgDn</button>
+                                </div>
+                            </div>
+
+                            <div class="submenu-divider"></div>
+
+                            <!-- Clipboard Section -->
+                            <div class="mobile-section">
+                                <div class="mobile-section-title">Clipboard</div>
+                                <div class="mobile-keys-row">
+                                    <button onclick="copySelection()" title="Copy selected text">📄 Copy</button>
+                                    <button onclick="pasteFromClipboard()" title="Paste from clipboard">📥
+                                        Paste</button>
+                                    <button onclick="sendInterrupt()" title="Send interrupt signal">⌧ Ctrl+C</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button id="session-btn" onclick="openSessionPicker()">📋 Sessions</button>
+                    <button id="reset-btn" onclick="resetSession()">🔁 Reset</button>
+                    <button id="llm-monitor-btn" onclick="toggleLLMMonitor()">🔍 Monitor</button>
+                    <button id="auth-btn" onclick="clearAuth()" style="display: none;">🔓 Auth</button>
+                </div>
             </div>
-            <div id="proxy-status" style="margin-top: 10px; font-size: 14px; font-weight: bold; color: #b0b0b0;"></div>
-            <div id="session-status" style="margin-top: 5px; font-size: 12px; color: #b0b0b0;"></div>
-            <div id="auth-status" style="margin-top: 5px; font-size: 12px; color: #b0b0b0;"></div>
+
+            <!-- Status lines (hidden by default, shown when needed) -->
+            <div id="proxy-status" class="status-line" style="display: none;"></div>
         </header>
 
         <!-- AI Proxy Settings Modal -->
@@ -124,34 +194,52 @@
             </div>
         </div>
 
-        <!-- LLM Monitor Subwindow -->
-        <div id="llm-monitor" class="llm-monitor" style="display: none;">
-            <div class="llm-monitor-header">
-                <h3>🔍 LLM Communication Monitor</h3>
-                <div class="llm-monitor-controls">
-                    <button onclick="exportLLMLog()" class="monitor-btn">💾 Export</button>
-                    <button onclick="clearLLMLog()" class="monitor-btn">🗑️ Clear</button>
-                    <button onclick="toggleLLMAutoScroll()" class="monitor-btn" id="autoscroll-btn">📜 Auto-scroll:
-                        ON</button>
-                    <button onclick="toggleLLMMonitor()" class="monitor-btn">✕</button>
-                </div>
+
+
+        <!-- Main Content Area with Resizable Panels -->
+        <div class="main-content" id="main-content">
+            <!-- Terminal Panel -->
+            <div class="terminal-panel" id="terminal-panel">
+                <div class="terminal" id="terminal-container"></div>
+                <footer>
+                    <div id="status">Connecting...</div>
+                    <div id="stats"></div>
+                </footer>
             </div>
-            <div class="llm-monitor-content" id="llm-monitor-content">
-                <div class="llm-monitor-placeholder">
-                    LLM communication will appear here when AI Proxy is active...
+
+            <!-- Resizer -->
+            <div class="panel-resizer" id="panel-resizer" style="display: none;"></div>
+
+            <!-- LLM Monitor Panel -->
+            <div class="llm-monitor-panel" id="llm-monitor-panel" style="display: none;">
+                <div class="llm-monitor-header">
+                    <h3>🔍 LLM Communication Monitor</h3>
+                    <div class="llm-monitor-controls">
+                        <button onclick="exportLLMLog()" class="monitor-btn">💾 Export</button>
+                        <button onclick="clearLLMLog()" class="monitor-btn">🗑️ Clear</button>
+                        <button onclick="toggleLLMAutoScroll()" class="monitor-btn" id="autoscroll-btn">📜 Auto-scroll:
+                            ON</button>
+                        <button onclick="toggleLLMMonitor()" class="monitor-btn">✕</button>
+                    </div>
+                </div>
+                <div class="llm-monitor-content" id="llm-monitor-content">
+                    <div class="llm-monitor-placeholder">
+                        LLM communication will appear here when AI Proxy is active...
+                    </div>
                 </div>
             </div>
         </div>
-
-        <div class="terminal" id="terminal-container"></div>
-
-        <footer>
-            <div id="status">Connecting...</div>
-            <div id="stats"></div>
-        </footer>
     </div>
 
     <script>
+        // Set CSS path dynamically based on current location
+        (function () {
+            const basePath = window.location.pathname.replace(/\/$/, '');
+            const cssPath = basePath ? `${basePath}/style.css` : 'style.css';
+            document.getElementById('main-stylesheet').href = cssPath;
+            console.log('CSS path set to:', cssPath);
+        })();
+
         let clientId = localStorage.getItem('terminal-session-id') || generateNewSessionId();
         let ws = null;
         let isConnected = false;
@@ -166,6 +254,12 @@
         let llmAutoScroll = true;
         let llmEntryCounter = 0;
 
+        // Stale state detection
+        let lastOutputTime = Date.now();
+        let staleStateCheckInterval = null;
+        let terminalRefreshAttempts = 0;
+        let recoveryMessageShown = false;
+
         function generateNewSessionId() {
             return 'web-' + crypto.getRandomValues(new Uint8Array(16))
                 .reduce((hex, byte) => hex + byte.toString(16).padStart(2, '0'), '');
@@ -178,9 +272,13 @@
         }
 
         function updateSessionStatus() {
-            const sessionStatus = document.getElementById('session-status');
-            const shortId = clientId.length > 20 ? clientId.substring(0, 20) + '...' : clientId;
-            sessionStatus.textContent = `📋 Session: ${shortId}`;
+            const shortId = clientId.length > 12 ? clientId.substring(4, 12) + '...' : clientId.substring(4);
+
+            // Update compact header session display
+            const sessionCompact = document.getElementById('session-compact');
+            if (sessionCompact) {
+                sessionCompact.textContent = `📋 ${shortId}`;
+            }
         }
 
         function clearAuth() {
@@ -247,13 +345,337 @@
             }
         }
 
+        // Stale state detection and recovery
+        function startStaleStateMonitoring() {
+            // Clear any existing interval
+            if (staleStateCheckInterval) {
+                clearInterval(staleStateCheckInterval);
+            }
+
+            // Reset monitoring state
+            lastOutputTime = Date.now();
+            terminalRefreshAttempts = 0;
+            recoveryMessageShown = false;
+
+            // Check for stale state every 5 seconds for more responsive detection
+            staleStateCheckInterval = setInterval(() => {
+                const timeSinceLastOutput = Date.now() - lastOutputTime;
+
+                // Update status to show potential stale state
+                if (timeSinceLastOutput > 15000 && isConnected && terminalRefreshAttempts === 0) {
+                    updateStatus('Connected (checking responsiveness...)', 'warning');
+                }
+
+                // If no output for 15 seconds and we're connected, try to refresh (reduced from 20s)
+                if (timeSinceLastOutput > 15000 && isConnected && terminalRefreshAttempts < 3) {
+                    console.log(`Detecting potential stale terminal state (${Math.round(timeSinceLastOutput / 1000)}s since last output), attempting refresh...`);
+                    updateStatus(`Connected (refreshing terminal... ${terminalRefreshAttempts + 1}/3)`, 'warning');
+                    // Reset recovery message flag when starting a new stale state episode
+                    if (terminalRefreshAttempts === 0) {
+                        recoveryMessageShown = false;
+                    }
+                    attemptTerminalRefresh();
+                }
+
+                // If still no output after 35 seconds and max attempts reached, force reconnection
+                if (timeSinceLastOutput > 35000 && isConnected && terminalRefreshAttempts >= 3) {
+                    console.log('Terminal appears completely stale, forcing reconnection...');
+                    updateStatus('Reconnecting (terminal unresponsive)', 'error');
+                    forceReconnection();
+                }
+
+                // Reset status to normal if terminal is responsive
+                if (timeSinceLastOutput < 10000 && isConnected && terminalRefreshAttempts === 0) {
+                    updateStatus('Connected', 'success');
+                }
+            }, 5000);
+        }
+
+        function stopStaleStateMonitoring() {
+            if (staleStateCheckInterval) {
+                clearInterval(staleStateCheckInterval);
+                staleStateCheckInterval = null;
+            }
+        }
+
+        function attemptTerminalRefresh() {
+            if (!ws || !isConnected) return;
+
+            terminalRefreshAttempts++;
+            console.log(`Terminal refresh attempt ${terminalRefreshAttempts}/3`);
+
+            try {
+                // Progressive refresh strategies - start gentle, get more aggressive
+                if (terminalRefreshAttempts === 1) {
+                    // Strategy 1: Gentle refresh with space + backspace
+                    ws.send(JSON.stringify({ input: ' \b' }));
+                    console.log('Applied gentle refresh (space + backspace)');
+                } else if (terminalRefreshAttempts === 2) {
+                    // Strategy 2: Send Enter to trigger prompt redraw
+                    ws.send(JSON.stringify({ input: '\r' }));
+                    console.log('Applied Enter refresh');
+                } else if (terminalRefreshAttempts === 3) {
+                    // Strategy 3: Multiple aggressive commands
+                    ws.send(JSON.stringify({ input: '\x03' })); // Ctrl+C
+                    setTimeout(() => {
+                        if (ws && isConnected) {
+                            ws.send(JSON.stringify({ input: '\x0C' })); // Ctrl+L
+                        }
+                    }, 100);
+                    setTimeout(() => {
+                        if (ws && isConnected) {
+                            ws.send(JSON.stringify({ input: '\r' })); // Enter
+                        }
+                    }, 200);
+                    console.log('Applied aggressive refresh (Ctrl+C, Ctrl+L, Enter)');
+                }
+
+                // Check if refresh worked after a shorter delay
+                setTimeout(() => {
+                    const recentOutput = Date.now() - lastOutputTime;
+                    if (recentOutput < 2000) {
+                        terminalRefreshAttempts = 0;
+                        updateStatus('Connected', 'success');
+                        console.log('Terminal refresh successful - terminal is responsive again');
+                    } else if (terminalRefreshAttempts >= 3) {
+                        // If all attempts failed, prepare for forced reconnection
+                        console.log('All refresh attempts failed, will force reconnection soon...');
+                    }
+                }, 1500);
+
+            } catch (e) {
+                console.error('Failed to send terminal refresh:', e);
+            }
+        }
+
+        function forceReconnection() {
+            console.log('Forcing WebSocket reconnection due to persistent stale state...');
+
+            // Stop monitoring during reconnection
+            stopStaleStateMonitoring();
+
+            // Close current connection
+            if (ws) {
+                ws.close();
+            }
+
+            // Clear terminal and show reconnection message
+            if (term) {
+                term.write('\r\n\x1b[33m[Terminal appears stale - reconnecting...]\x1b[0m\r\n');
+            }
+
+            // Reconnect after a brief delay
+            setTimeout(async () => {
+                await connectWebSocket();
+            }, 1000);
+        }
+
+        function updateLastOutputTime() {
+            const previousTime = lastOutputTime;
+            lastOutputTime = Date.now();
+
+            // If we were in a stale state and now got output, log recovery
+            if (terminalRefreshAttempts > 0) {
+                const staleDuration = Math.round((lastOutputTime - previousTime) / 1000);
+                console.log(`Terminal recovered from stale state after ${staleDuration}s (${terminalRefreshAttempts} refresh attempts)`);
+
+                // Show brief recovery message to user (only once per stale state episode and only for significant stale periods)
+                if (term && staleDuration > 15 && terminalRefreshAttempts >= 2 && !recoveryMessageShown) {
+                    recoveryMessageShown = true;
+                    setTimeout(() => {
+                        term.write('\r\n\x1b[32m[Terminal connection restored]\x1b[0m\r\n');
+                    }, 100);
+                }
+            }
+
+            terminalRefreshAttempts = 0; // Reset attempts when we get output
+        }
+
+        // Panel resizer functionality
+        function initializeResizer() {
+            const resizer = document.getElementById('panel-resizer');
+            const terminalPanel = document.getElementById('terminal-panel');
+            const monitorPanel = document.getElementById('llm-monitor-panel');
+            const mainContent = document.getElementById('main-content');
+
+            let isResizing = false;
+            let startX = 0;
+            let startY = 0;
+            let startTerminalWidth = 0;
+            let startTerminalHeight = 0;
+
+            // Check if we're in mobile mode (vertical split)
+            function isMobileMode() {
+                return window.innerWidth <= 768;
+            }
+
+            resizer.addEventListener('mousedown', (e) => {
+                isResizing = true;
+                const mobile = isMobileMode();
+
+                if (mobile) {
+                    startY = e.clientY;
+                    startTerminalHeight = terminalPanel.offsetHeight;
+                    document.body.style.cursor = 'row-resize';
+                } else {
+                    startX = e.clientX;
+                    startTerminalWidth = terminalPanel.offsetWidth;
+                    document.body.style.cursor = 'col-resize';
+                }
+
+                // Add visual feedback
+                resizer.classList.add('resizing');
+                document.body.style.userSelect = 'none';
+
+                e.preventDefault();
+            });
+
+            document.addEventListener('mousemove', (e) => {
+                if (!isResizing) return;
+
+                const mobile = isMobileMode();
+
+                if (mobile) {
+                    // Vertical resizing for mobile
+                    const deltaY = e.clientY - startY;
+                    const mainHeight = mainContent.offsetHeight;
+                    const newTerminalHeight = startTerminalHeight + deltaY;
+
+                    // Set minimum and maximum heights (30% to 80% of total height)
+                    const minHeight = mainHeight * 0.3;
+                    const maxHeight = mainHeight * 0.8;
+
+                    if (newTerminalHeight >= minHeight && newTerminalHeight <= maxHeight) {
+                        const terminalPercent = (newTerminalHeight / mainHeight) * 100;
+                        const monitorPercent = 100 - terminalPercent;
+
+                        terminalPanel.style.height = `${terminalPercent}%`;
+                        monitorPanel.style.height = `${monitorPercent}%`;
+
+                        // Trigger terminal resize
+                        if (term && fitAddon) {
+                            setTimeout(() => fitAddon.fit(), 10);
+                        }
+                    }
+                } else {
+                    // Horizontal resizing for desktop
+                    const deltaX = e.clientX - startX;
+                    const mainWidth = mainContent.offsetWidth;
+                    const newTerminalWidth = startTerminalWidth + deltaX;
+
+                    // Set minimum and maximum widths (30% to 80% of total width)
+                    const minWidth = mainWidth * 0.3;
+                    const maxWidth = mainWidth * 0.8;
+
+                    if (newTerminalWidth >= minWidth && newTerminalWidth <= maxWidth) {
+                        const terminalPercent = (newTerminalWidth / mainWidth) * 100;
+                        const monitorPercent = 100 - terminalPercent;
+
+                        terminalPanel.style.width = `${terminalPercent}%`;
+                        monitorPanel.style.width = `${monitorPercent}%`;
+
+                        // Trigger terminal resize
+                        if (term && fitAddon) {
+                            setTimeout(() => fitAddon.fit(), 10);
+                        }
+                    }
+                }
+            });
+
+            document.addEventListener('mouseup', () => {
+                if (isResizing) {
+                    isResizing = false;
+                    resizer.classList.remove('resizing');
+                    document.body.style.cursor = '';
+                    document.body.style.userSelect = '';
+
+                    // Save the current split ratio to localStorage
+                    const mobile = isMobileMode();
+                    if (mobile) {
+                        const terminalPercent = (terminalPanel.offsetHeight / mainContent.offsetHeight) * 100;
+                        localStorage.setItem('llm-monitor-split-ratio-mobile', terminalPercent.toString());
+                    } else {
+                        const terminalPercent = (terminalPanel.offsetWidth / mainContent.offsetWidth) * 100;
+                        localStorage.setItem('llm-monitor-split-ratio', terminalPercent.toString());
+                    }
+                }
+            });
+        }
+
         function toggleLLMMonitor() {
-            const monitor = document.getElementById('llm-monitor');
+            const monitorPanel = document.getElementById('llm-monitor-panel');
+            const resizer = document.getElementById('panel-resizer');
             const btn = document.getElementById('llm-monitor-btn');
+            const mainContent = document.getElementById('main-content');
 
             llmMonitorVisible = !llmMonitorVisible;
-            monitor.style.display = llmMonitorVisible ? 'block' : 'none';
-            btn.textContent = llmMonitorVisible ? '🔍 Hide Monitor' : '🔍 LLM Monitor';
+
+            if (llmMonitorVisible) {
+                // Show monitor panel and resizer
+                monitorPanel.style.display = 'flex';
+                resizer.style.display = 'block';
+                mainContent.classList.add('split-view');
+                btn.textContent = '🔍 Hide Monitor';
+
+                // Initialize resizer if not already done
+                if (!window.resizerInitialized) {
+                    initializeResizer();
+                    window.resizerInitialized = true;
+                }
+
+                // Restore saved split ratio or use default
+                const terminalPanel = document.getElementById('terminal-panel');
+                const mobile = window.innerWidth <= 768;
+
+                if (mobile) {
+                    // Mobile: vertical split
+                    const savedRatio = localStorage.getItem('llm-monitor-split-ratio-mobile');
+                    if (savedRatio) {
+                        const terminalPercent = parseFloat(savedRatio);
+                        const monitorPercent = 100 - terminalPercent;
+                        terminalPanel.style.height = `${terminalPercent}%`;
+                        monitorPanel.style.height = `${monitorPercent}%`;
+                    } else {
+                        // Use default 60/40 split for mobile
+                        terminalPanel.style.height = '60%';
+                        monitorPanel.style.height = '40%';
+                    }
+                } else {
+                    // Desktop: horizontal split
+                    const savedRatio = localStorage.getItem('llm-monitor-split-ratio');
+                    if (savedRatio) {
+                        const terminalPercent = parseFloat(savedRatio);
+                        const monitorPercent = 100 - terminalPercent;
+                        terminalPanel.style.width = `${terminalPercent}%`;
+                        monitorPanel.style.width = `${monitorPercent}%`;
+                    } else {
+                        // Use default 60/40 split for desktop
+                        terminalPanel.style.width = '60%';
+                        monitorPanel.style.width = '40%';
+                    }
+                }
+            } else {
+                // Hide monitor panel and resizer
+                monitorPanel.style.display = 'none';
+                resizer.style.display = 'none';
+                mainContent.classList.remove('split-view');
+                btn.textContent = '🔍 LLM Monitor';
+
+                // Reset terminal panel dimensions to full size
+                const terminalPanel = document.getElementById('terminal-panel');
+                terminalPanel.style.width = '';
+                terminalPanel.style.height = '';
+            }
+
+            // Trigger terminal resize to fit new layout with multiple attempts
+            if (term && fitAddon) {
+                setTimeout(() => {
+                    fitAddon.fit();
+                    // Additional fit attempts to ensure proper sizing
+                    setTimeout(() => fitAddon.fit(), 50);
+                    setTimeout(() => fitAddon.fit(), 150);
+                }, 100);
+            }
         }
 
         function clearLLMLog() {
@@ -466,7 +888,8 @@
 
         async function refreshSessions() {
             try {
-                const response = await fetch('/api/sessions');
+                const basePath = window.location.pathname.replace(/\/$/, '');
+                const response = await fetch(`${basePath}/api/sessions`);
                 const data = await response.json();
                 const sessionsList = document.getElementById('sessions-list');
 
@@ -551,7 +974,8 @@
             }
 
             try {
-                await fetch(`/reset/${sessionId}`, { method: 'POST' });
+                const basePath = window.location.pathname.replace(/\/$/, '');
+                await fetch(`${basePath}/reset/${sessionId}`, { method: 'POST' });
 
                 // If we deleted our current session, create a new one
                 if (sessionId === clientId) {
@@ -646,7 +1070,13 @@
 
             // Open terminal in container
             term.open(document.getElementById('terminal-container'));
-            fitAddon.fit();
+
+            // Ensure terminal fits properly after DOM is ready
+            setTimeout(() => {
+                fitAddon.fit();
+                // Force a second fit to ensure proper sizing
+                setTimeout(() => fitAddon.fit(), 100);
+            }, 50);
 
             // Send initial terminal size
             sendTerminalSize();
@@ -656,6 +1086,15 @@
                 if (isConnected && ws && ws.readyState === WebSocket.OPEN) {
                     // Always use JSON.stringify to properly escape all characters
                     ws.send(JSON.stringify({ input: data }));
+
+                    // Reset stale state monitoring when user types (but don't update output time)
+                    terminalRefreshAttempts = 0;
+                    recoveryMessageShown = false; // Reset recovery message flag on user input
+
+                    // Update status to show terminal is active
+                    if (isConnected) {
+                        updateStatus('Connected', 'success');
+                    }
                 }
             });
 
@@ -680,11 +1119,15 @@
 
         async function getWebSocketUrl() {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const url = `${protocol}//${window.location.host}/ws/${clientId}`;
+            const basePath = window.location.pathname.replace(/\/$/, ''); // Remove trailing slash
+            const url = `${protocol}//${window.location.host}${basePath}/ws/${clientId}`;
+            console.log('WebSocket URL:', url); // Debug logging
 
             // Check if authentication is required
             try {
-                const response = await fetch('/api/auth/required');
+                const authApiUrl = `${basePath}/api/auth/required`;
+                console.log('Auth API URL:', authApiUrl); // Debug logging
+                const response = await fetch(authApiUrl);
                 const authData = await response.json();
 
                 if (!authData.auth_required) {
@@ -720,12 +1163,19 @@
                 ws.onopen = () => {
                     isConnected = true;
                     updateStatus('Connected', 'success');
+
+                    // Start stale state monitoring when connection is established
+                    startStaleStateMonitoring();
+                    console.log('Started stale state monitoring for connection');
                 };
 
                 ws.onmessage = (event) => {
                     try {
                         const data = JSON.parse(event.data);
                         if (data.output && term) {
+                            // Update last output time for stale state detection
+                            updateLastOutputTime();
+
                             // Write output immediately without scroll position checks for better performance
                             term.write(data.output);
 
@@ -753,10 +1203,18 @@
 
                 ws.onerror = (error) => {
                     updateStatus('Error', 'error');
+
+                    // Stop stale state monitoring on error
+                    stopStaleStateMonitoring();
+                    console.log('Stopped stale state monitoring due to WebSocket error');
                 };
 
                 ws.onclose = (event) => {
                     isConnected = false;
+
+                    // Stop stale state monitoring when connection is closed
+                    stopStaleStateMonitoring();
+                    console.log('Stopped stale state monitoring due to connection close');
 
                     // Check if it's an authentication error
                     if (event.code === 1008) {
@@ -831,7 +1289,8 @@
             // Load config from backend if not already loaded
             if (!systemPrompt) {
                 try {
-                    const response = await fetch('/api/ai-proxy/config');
+                    const basePath = window.location.pathname.replace(/\/$/, '');
+                    const response = await fetch(`${basePath}/api/ai-proxy/config`);
                     const config = await response.json();
                     systemPrompt = config.default_system_prompt;
                     defaultProvider = config.default_provider;
@@ -889,6 +1348,8 @@
         }
 
         function updateProxyStatus(status) {
+            const proxyStatusEl = document.getElementById('proxy-status');
+
             if (status.enabled) {
                 const pct = Math.round((status.iterations / status.max_iterations) * 100);
                 let color = currentTheme === 'matrix' ? '#00ff41' : '#a6e3a1';  // Theme-aware colors
@@ -899,11 +1360,12 @@
                 }
 
                 const statusText = `🤖 ${status.provider} | 🔄 ${status.iterations}/${status.max_iterations} (${pct}%)`;
-                document.getElementById('proxy-status').textContent = statusText;
-                document.getElementById('proxy-status').style.color = color;
+                proxyStatusEl.textContent = statusText;
+                proxyStatusEl.style.color = color;
+                proxyStatusEl.style.display = 'block';
                 document.getElementById('ai-proxy-reset-btn').style.display = 'inline-block';
             } else {
-                document.getElementById('proxy-status').textContent = '';
+                proxyStatusEl.style.display = 'none';
                 document.getElementById('ai-proxy-reset-btn').style.display = 'none';
             }
         }
@@ -920,27 +1382,277 @@
                 term.options.theme = getTerminalTheme();
             }
 
-            // Update button text
-            const themeBtn = document.getElementById('theme-btn');
-            themeBtn.textContent = currentTheme === 'matrix' ? '🎨 Modern Lite' : '🎨 Matrix';
+            // Update logo title to show current theme
+            const logo = document.getElementById('logo');
+            logo.title = `Click to switch theme (Current: ${currentTheme === 'matrix' ? 'Matrix' : 'Modern'})`;
+
+            // Brief visual feedback
+            logo.style.transform = 'scale(1.1)';
+            setTimeout(() => {
+                logo.style.transform = 'scale(1)';
+            }, 150);
         }
 
-        function sendCtrlC() {
+        // Clipboard submenu functions
+        function toggleControlsMenu() {
+            const menu = document.getElementById('controls-menu');
+            const isVisible = menu.style.display !== 'none';
+
+            // Close all other submenus first
+            closeAllSubmenus();
+
+            if (!isVisible) {
+                menu.style.display = 'block';
+                // Close menu when clicking outside
+                setTimeout(() => {
+                    document.addEventListener('click', closeControlsMenuOnClickOutside);
+                }, 10);
+            }
+        }
+
+        function closeAllSubmenus() {
+            const submenus = document.querySelectorAll('.submenu');
+            submenus.forEach(menu => {
+                menu.style.display = 'none';
+            });
+            document.removeEventListener('click', closeControlsMenuOnClickOutside);
+        }
+
+        function closeControlsMenuOnClickOutside(event) {
+            const containers = document.querySelectorAll('.submenu-container');
+            let clickedInside = false;
+            containers.forEach(container => {
+                if (container.contains(event.target)) {
+                    clickedInside = true;
+                }
+            });
+            if (!clickedInside) {
+                closeAllSubmenus();
+            }
+        }
+
+        // Mobile controls submenu functions
+        function toggleMobileControlsMenu() {
+            const menu = document.getElementById('mobile-controls-menu');
+            const isVisible = menu.style.display !== 'none';
+
+            // Close all other submenus first
+            closeAllSubmenus();
+
+            if (!isVisible) {
+                menu.style.display = 'block';
+                // Close menu when clicking outside
+                setTimeout(() => {
+                    document.addEventListener('click', closeControlsMenuOnClickOutside);
+                }, 10);
+            }
+        }
+
+        // Send special keys
+        function sendKey(keyName) {
+            if (!isConnected || !ws || ws.readyState !== WebSocket.OPEN) {
+                updateStatus('Not connected', 'error');
+                setTimeout(() => {
+                    if (isConnected) {
+                        updateStatus('Connected', 'success');
+                    }
+                }, 1500);
+                closeAllSubmenus();
+                return;
+            }
+
+            let keyCode;
+            switch (keyName) {
+                case 'Tab':
+                    keyCode = '\t';
+                    break;
+                case 'Enter':
+                    keyCode = '\r';
+                    break;
+                case 'Escape':
+                    keyCode = '\x1b';
+                    break;
+                case 'Home':
+                    keyCode = '\x1b[H';
+                    break;
+                case 'End':
+                    keyCode = '\x1b[F';
+                    break;
+                case 'PageUp':
+                    keyCode = '\x1b[5~';
+                    break;
+                case 'PageDown':
+                    keyCode = '\x1b[6~';
+                    break;
+                default:
+                    console.error('Unknown key:', keyName);
+                    closeAllSubmenus();
+                    return;
+            }
+
+            try {
+                ws.send(JSON.stringify({ input: keyCode }));
+                console.log(`Sent ${keyName} key`);
+
+                // Show brief feedback
+                updateStatus(`${keyName} sent`, 'success');
+                setTimeout(() => {
+                    if (isConnected) {
+                        updateStatus('Connected', 'success');
+                    }
+                }, 1000);
+            } catch (e) {
+                console.error(`Failed to send ${keyName}:`, e);
+            }
+            closeAllSubmenus();
+        }
+
+        // Send arrow keys
+        function sendArrowKey(direction) {
+            if (!isConnected || !ws || ws.readyState !== WebSocket.OPEN) {
+                updateStatus('Not connected', 'error');
+                setTimeout(() => {
+                    if (isConnected) {
+                        updateStatus('Connected', 'success');
+                    }
+                }, 1500);
+                closeAllSubmenus();
+                return;
+            }
+
+            let keyCode;
+            let displayName;
+            switch (direction) {
+                case 'ArrowUp':
+                    keyCode = '\x1b[A';
+                    displayName = 'Up';
+                    break;
+                case 'ArrowDown':
+                    keyCode = '\x1b[B';
+                    displayName = 'Down';
+                    break;
+                case 'ArrowRight':
+                    keyCode = '\x1b[C';
+                    displayName = 'Right';
+                    break;
+                case 'ArrowLeft':
+                    keyCode = '\x1b[D';
+                    displayName = 'Left';
+                    break;
+                default:
+                    console.error('Unknown arrow direction:', direction);
+                    closeAllSubmenus();
+                    return;
+            }
+
+            try {
+                ws.send(JSON.stringify({ input: keyCode }));
+                console.log(`Sent ${displayName} arrow key`);
+
+                // Show brief feedback for arrow keys
+                updateStatus(`${displayName} arrow`, 'success');
+                setTimeout(() => {
+                    if (isConnected) {
+                        updateStatus('Connected', 'success');
+                    }
+                }, 800);
+            } catch (e) {
+                console.error(`Failed to send ${displayName} arrow:`, e);
+            }
+            closeAllSubmenus();
+        }
+
+        function copySelection() {
+            const selection = term.getSelection();
+            if (selection && selection.trim().length > 0) {
+                copyToClipboard(selection);
+                console.log('Copied selected text to clipboard:', selection.substring(0, 50) + '...');
+
+                // Show brief feedback
+                updateStatus('Copied to clipboard', 'success');
+                setTimeout(() => {
+                    if (isConnected) {
+                        updateStatus('Connected', 'success');
+                    }
+                }, 1500);
+            } else {
+                // Show feedback that there's nothing to copy
+                updateStatus('No text selected', 'warning');
+                setTimeout(() => {
+                    if (isConnected) {
+                        updateStatus('Connected', 'success');
+                    }
+                }, 1500);
+            }
+            closeAllSubmenus();
+        }
+
+        function sendInterrupt() {
             if (!isConnected) {
                 return;
             }
 
-            // Send Ctrl+C (ASCII 0x03)
+            // Send Ctrl+C interrupt signal
             try {
                 ws.send(JSON.stringify({ input: '\x03' }));
+                console.log('Sent Ctrl+C interrupt signal');
+                updateStatus('Interrupt sent', 'warning');
+                setTimeout(() => {
+                    if (isConnected) {
+                        updateStatus('Connected', 'success');
+                    }
+                }, 1500);
             } catch (e) {
                 console.error('Failed to send Ctrl+C');
+            }
+            closeAllSubmenus();
+        }
+
+        // Ctrl+C always sends interrupt signal (traditional terminal behavior)
+        function sendCtrlC() {
+            sendInterrupt();
+        }
+
+        function copyToClipboard(text) {
+            // Try modern clipboard API first
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(text).then(() => {
+                    console.log('Text copied to clipboard using modern API');
+                }).catch(err => {
+                    console.error('Failed to copy using modern API:', err);
+                    fallbackCopyToClipboard(text);
+                });
+            } else {
+                // Fallback for older browsers or non-secure contexts
+                fallbackCopyToClipboard(text);
+            }
+        }
+
+        function fallbackCopyToClipboard(text) {
+            // Create temporary textarea element
+            const textArea = document.createElement('textarea');
+            textArea.value = text;
+            textArea.style.position = 'fixed';
+            textArea.style.left = '-999999px';
+            textArea.style.top = '-999999px';
+            document.body.appendChild(textArea);
+
+            try {
+                textArea.focus();
+                textArea.select();
+                document.execCommand('copy');
+                console.log('Text copied to clipboard using fallback method');
+            } catch (err) {
+                console.error('Failed to copy to clipboard:', err);
+            } finally {
+                document.body.removeChild(textArea);
             }
         }
 
         function resetSession() {
             if (confirm('Reset your terminal session?')) {
-                fetch(`/reset/${clientId}`, { method: 'POST' })
+                const basePath = window.location.pathname.replace(/\/$/, '');
+                fetch(`${basePath}/reset/${clientId}`, { method: 'POST' })
                     .then(r => r.json())
                     .then(data => {
                         if (term) term.clear();
@@ -953,22 +1665,36 @@
 
 
         function updateStatus(text, type) {
+            // Update footer status (main status display)
             const status = document.getElementById('status');
-            status.textContent = text;
-            status.className = `status-${type}`;
+            if (status) {
+                status.textContent = text;
+                status.className = `status-${type}`;
+            }
+
+            // Update compact header status
+            const statusCompact = document.getElementById('status-compact');
+            if (statusCompact) {
+                statusCompact.textContent = text;
+                statusCompact.className = `status-${type}`;
+            }
 
             // Fetch stats
-            fetch('/stats')
+            const basePath = window.location.pathname.replace(/\/$/, '');
+            fetch(`${basePath}/stats`)
                 .then(r => r.json())
                 .then(data => {
                     const stats = document.getElementById('stats');
-                    stats.textContent = `Sessions: ${data.active_sessions}/${data.max_sessions}`;
+                    if (stats) {
+                        stats.textContent = `Sessions: ${data.active_sessions}/${data.max_sessions}`;
+                    }
                 })
                 .catch(e => { });
         }
 
         // Check if auth is required
-        fetch('/api/auth/required')
+        const basePath = window.location.pathname.replace(/\/$/, '');
+        fetch(`${basePath}/api/auth/required`)
             .then(r => r.json())
             .then(data => {
                 if (data.auth_required) {
@@ -979,7 +1705,10 @@
 
         // Initialize theme and terminal
         document.body.className = `theme-${currentTheme}`;
-        document.getElementById('theme-btn').textContent = currentTheme === 'matrix' ? '🎨 Modern Lite' : '🎨 Matrix';
+
+        // Initialize logo tooltip
+        const logo = document.getElementById('logo');
+        logo.title = `Click to switch theme (Current: ${currentTheme === 'matrix' ? 'Matrix' : 'Modern'})`;
 
         // Save session ID if it's new
         if (!localStorage.getItem('terminal-session-id')) {
@@ -990,6 +1719,102 @@
 
         // Update auth button visibility
         updateAuthButton();
+
+        // Add keyboard event handling for clipboard operations
+        document.addEventListener('keydown', (e) => {
+            // Handle Ctrl+C for interrupt (traditional terminal behavior)
+            if (e.ctrlKey && e.key === 'c') {
+                // Check if the terminal has focus or if we're in the terminal area
+                const terminalContainer = document.getElementById('terminal-container');
+                const isTerminalFocused = terminalContainer.contains(document.activeElement) ||
+                    document.activeElement === document.body ||
+                    document.activeElement === terminalContainer;
+
+                // Only intercept in terminal context - let normal copy work in modals/inputs
+                if (isTerminalFocused && !isInputElement(document.activeElement)) {
+                    e.preventDefault(); // Prevent default browser copy behavior
+                    sendCtrlC(); // Always send interrupt signal
+                }
+            }
+
+            // Handle Ctrl+V for paste in terminal
+            if (e.ctrlKey && e.key === 'v') {
+                const terminalContainer = document.getElementById('terminal-container');
+                const isTerminalFocused = terminalContainer.contains(document.activeElement) ||
+                    document.activeElement === document.body ||
+                    document.activeElement === terminalContainer;
+
+                // Only intercept in terminal context
+                if (isTerminalFocused && !isInputElement(document.activeElement)) {
+                    e.preventDefault(); // Prevent default paste
+                    pasteFromClipboard();
+                }
+            }
+        });
+
+        function isInputElement(element) {
+            if (!element) return false;
+            const tagName = element.tagName.toLowerCase();
+            return tagName === 'input' || tagName === 'textarea' || element.contentEditable === 'true';
+        }
+
+        function pasteFromClipboard() {
+            if (!isConnected || !ws || ws.readyState !== WebSocket.OPEN) {
+                updateStatus('Not connected', 'error');
+                setTimeout(() => {
+                    if (isConnected) {
+                        updateStatus('Connected', 'success');
+                    }
+                }, 1500);
+                closeAllSubmenus();
+                return;
+            }
+
+            // Try modern clipboard API first
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.readText().then(text => {
+                    if (text && text.trim().length > 0) {
+                        // Send each character to maintain proper terminal behavior
+                        for (const char of text) {
+                            ws.send(JSON.stringify({ input: char }));
+                        }
+                        console.log('Pasted text from clipboard:', text.substring(0, 50) + '...');
+
+                        // Show feedback
+                        updateStatus(`Pasted ${text.length} characters`, 'success');
+                        setTimeout(() => {
+                            if (isConnected) {
+                                updateStatus('Connected', 'success');
+                            }
+                        }, 1500);
+                    } else {
+                        updateStatus('Clipboard is empty', 'warning');
+                        setTimeout(() => {
+                            if (isConnected) {
+                                updateStatus('Connected', 'success');
+                            }
+                        }, 1500);
+                    }
+                }).catch(err => {
+                    console.error('Failed to read from clipboard:', err);
+                    updateStatus('Clipboard access denied', 'error');
+                    setTimeout(() => {
+                        if (isConnected) {
+                            updateStatus('Connected', 'success');
+                        }
+                    }, 1500);
+                });
+            } else {
+                updateStatus('Clipboard API not available', 'warning');
+                setTimeout(() => {
+                    if (isConnected) {
+                        updateStatus('Connected', 'success');
+                    }
+                }, 1500);
+                console.log('Clipboard API not available - paste using right-click or browser menu');
+            }
+            closeAllSubmenus();
+        }
 
         // Initialize terminal and connect
         initTerminal();

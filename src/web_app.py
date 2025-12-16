@@ -5,11 +5,13 @@ import logging
 import json
 import asyncio
 from datetime import datetime
-from fastapi import FastAPI, WebSocket, HTTPException
+from fastapi import FastAPI, WebSocket, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from contextlib import asynccontextmanager
 from starlette.websockets import WebSocketDisconnect
+from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import ValidationError
 from src.session_manager import SessionManager
 from src.config import Config
@@ -32,7 +34,31 @@ async def lifespan(app: FastAPI):
     logger.info("Web app stopped")
 
 
-app = FastAPI(title="TeleCLI", lifespan=lifespan)
+app = FastAPI(
+    title="TeleCLI", 
+    lifespan=lifespan,
+)
+
+# Add middleware to handle reverse proxy headers
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
+
+# Add custom middleware to handle potential request issues
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        try:
+            # Log incoming requests for debugging
+            logger.debug(f"Incoming request: {request.method} {request.url}")
+            logger.debug(f"Headers: {dict(request.headers)}")
+            
+            response = await call_next(request)
+            return response
+        except Exception as e:
+            logger.error(f"Request processing error: {e}")
+            logger.error(f"Request URL: {request.url}")
+            logger.error(f"Request method: {request.method}")
+            raise
+
+app.add_middleware(RequestLoggingMiddleware)
 
 # Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -44,15 +70,72 @@ async def get_root():
     return FileResponse("static/index.html")
 
 
+@app.get("/telecli")
+async def get_telecli_root():
+    """Serve the web UI for Cloudflare tunnel path"""
+    return FileResponse("static/index.html")
+
+
+@app.get("/telecli/")
+async def get_telecli_root_slash():
+    """Serve the web UI for Cloudflare tunnel path with trailing slash"""
+    return FileResponse("static/index.html")
+
+
 @app.get("/style.css")
 async def get_style():
     """Serve the CSS file"""
     return FileResponse("static/style.css")
 
 
+@app.get("/telecli/style.css")
+async def get_telecli_style():
+    """Serve the CSS file for Cloudflare tunnel path"""
+    return FileResponse("static/style.css")
+
+
+@app.get("/debug")
+async def debug_info(request: Request):
+    """Debug endpoint to check request information"""
+    return {
+        "url": str(request.url),
+        "method": request.method,
+        "headers": dict(request.headers),
+        "path": request.url.path,
+        "query": request.url.query,
+        "host": request.headers.get("host"),
+        "x_forwarded_for": request.headers.get("x-forwarded-for"),
+        "x_forwarded_proto": request.headers.get("x-forwarded-proto"),
+    }
+
+
+@app.get("/telecli/debug")
+async def debug_info_telecli(request: Request):
+    """Debug endpoint to check request information (telecli path)"""
+    return {
+        "url": str(request.url),
+        "method": request.method,
+        "headers": dict(request.headers),
+        "path": request.url.path,
+        "query": request.url.query,
+        "host": request.headers.get("host"),
+        "x_forwarded_for": request.headers.get("x-forwarded-for"),
+        "x_forwarded_proto": request.headers.get("x-forwarded-proto"),
+    }
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
+    stats = session_manager.get_stats()
+    return {
+        "status": "healthy",
+        "sessions": stats,
+    }
+
+
+@app.get("/telecli/health")
+async def health_check_telecli():
+    """Health check endpoint (telecli path)"""
     stats = session_manager.get_stats()
     return {
         "status": "healthy",
@@ -67,9 +150,31 @@ async def get_stats():
     return stats
 
 
+@app.get("/telecli/stats")
+async def get_stats_telecli():
+    """Get server statistics (telecli path)"""
+    stats = session_manager.get_stats()
+    return stats
+
+
 @app.get("/api/sessions")
 async def get_active_sessions():
     """Get list of active sessions"""
+    sessions = []
+    for session_id, session in session_manager.sessions.items():
+        if session.is_active:
+            sessions.append({
+                "id": session_id,
+                "created_at": session_id.split('-')[-1] if '-' in session_id else "unknown",
+                "shell": session.shell,
+                "is_active": session.is_active
+            })
+    return {"sessions": sessions}
+
+
+@app.get("/telecli/api/sessions")
+async def get_active_sessions_telecli():
+    """Get list of active sessions (telecli path)"""
     sessions = []
     for session_id, session in session_manager.sessions.items():
         if session.is_active:
@@ -113,6 +218,19 @@ async def clear_llm_monitor_data():
     return {"status": "cleared"}
 
 
+@app.get("/telecli/api/llm-monitor")
+async def get_llm_monitor_data_telecli():
+    """Get LLM monitor data (telecli path)"""
+    return {"entries": llm_monitor_data}
+
+@app.delete("/telecli/api/llm-monitor")
+async def clear_llm_monitor_data_telecli():
+    """Clear LLM monitor data (telecli path)"""
+    global llm_monitor_data
+    llm_monitor_data = []
+    return {"status": "cleared"}
+
+
 @app.get("/api/auth/required")
 async def get_auth_required():
     """Get whether authentication is required"""
@@ -121,9 +239,27 @@ async def get_auth_required():
     }
 
 
+@app.get("/telecli/api/auth/required")
+async def get_auth_required_telecli():
+    """Get whether authentication is required (telecli path)"""
+    return {
+        "auth_required": Config.AUTH_REQUIRED
+    }
+
+
 @app.get("/api/ai-proxy/config")
 async def get_ai_proxy_config():
     """Get AI proxy configuration (single source of truth)"""
+    return {
+        "default_provider": Config.AI_PROXY_PROVIDER,
+        "default_system_prompt": Config.AI_PROXY_SYSTEM_PROMPT,
+        "max_iterations": Config.AI_PROXY_MAX_ITERATIONS
+    }
+
+
+@app.get("/telecli/api/ai-proxy/config")
+async def get_ai_proxy_config_telecli():
+    """Get AI proxy configuration (telecli path)"""
     return {
         "default_provider": Config.AI_PROXY_PROVIDER,
         "default_system_prompt": Config.AI_PROXY_SYSTEM_PROMPT,
@@ -143,8 +279,33 @@ async def reset_session(client_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/telecli/reset/{client_id}")
+async def reset_session_telecli(client_id: str):
+    """Reset a client's session (telecli path)"""
+    try:
+        await session_manager.close_session(client_id)
+        logger.info(f"Reset session for client {client_id}")
+        return {"status": "ok", "message": "Session reset"}
+    except Exception as e:
+        logger.error(f"Error resetting session {client_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.websocket("/ws/{client_id}")
 async def websocket_endpoint(websocket: WebSocket, client_id: str):
+    """WebSocket endpoint for bidirectional terminal streaming"""
+    # Delegate to the main implementation
+    await websocket_implementation(websocket, client_id)
+
+
+@app.websocket("/telecli/ws/{client_id}")
+async def websocket_endpoint_telecli(websocket: WebSocket, client_id: str):
+    """WebSocket endpoint for bidirectional terminal streaming (telecli path)"""
+    # Delegate to the main implementation
+    await websocket_implementation(websocket, client_id)
+
+
+async def websocket_implementation(websocket: WebSocket, client_id: str):
     """WebSocket endpoint for bidirectional terminal streaming"""
 
     # Check authentication if required
@@ -160,6 +321,7 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
 
     # Track connection state
     connection_active = True
+    logger.info(f"WebSocket connection_active initialized to True for {client_id}")
     
     # Set up LLM monitoring callback for this client
     async def llm_monitor_callback(entry_type: str, data: dict):
@@ -167,6 +329,7 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
         nonlocal connection_active
         
         if not connection_active:
+            logger.debug(f"LLM monitor callback skipped - connection_active=False for {client_id}")
             return  # Don't try to send if connection is closed
         
         try:
@@ -179,6 +342,7 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
         except Exception as e:
             logger.debug(f"Failed to send LLM monitor data: {e}")
             # Mark connection as inactive if send fails
+            logger.warning(f"Marking connection_active=False for {client_id} due to LLM monitor send failure")
             connection_active = False
     
     # Set the callback for this specific session's AI proxy (if it exists)
@@ -187,20 +351,39 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
         ai_proxy.set_monitor_callback(llm_monitor_callback)
     
     # Check if this is a reconnection to an existing session
-    # If reconnecting, send a subtle prompt refresh
+    # If reconnecting, send multiple refresh attempts to ensure terminal responsiveness
     session_existed = client_id in session_manager.sessions
     if session_existed:
         try:
             session = await session_manager.get_session(client_id)
-            # Send a space followed by a backspace to the terminal.
-            # This is a well-known terminal trick: it causes the shell to redraw the current line,
-            # including the prompt, without altering the user's input. The visible effect is a subtle
-            # refresh of the prompt and current line, which is useful after reconnecting to an existing session.
-            await asyncio.sleep(0.1)  # Small delay to ensure connection is ready
-            await session.send_input(" \b", newline=False)
-            logger.debug(f"Sent prompt refresh to existing session {client_id}")
+            logger.info(f"Reconnecting to existing session {client_id} - applying terminal refresh")
+            
+            # Wait a bit longer to ensure connection is fully established
+            await asyncio.sleep(0.2)
+            
+            # Try multiple refresh strategies for better reliability
+            try:
+                # Strategy 1: Space + backspace (gentle refresh)
+                await session.send_input(" \b", newline=False)
+                await asyncio.sleep(0.1)
+                
+                # Strategy 2: Send a newline to trigger prompt redraw
+                await session.send_input("", newline=True)
+                await asyncio.sleep(0.1)
+                
+                # Strategy 3: Send Ctrl+L (clear screen) as last resort if needed
+                # This is more aggressive but ensures terminal responsiveness
+                await session.send_input("\x0C", newline=False)
+                
+                logger.info(f"Successfully applied terminal refresh strategies to session {client_id}")
+                
+            except Exception as refresh_error:
+                logger.warning(f"Terminal refresh failed for session {client_id}: {refresh_error}")
+                # Even if refresh fails, continue with the connection
+                
         except Exception as e:
-            logger.debug(f"Could not refresh existing session {client_id}: {e}")
+            logger.warning(f"Could not refresh existing session {client_id}: {e}")
+            # Continue anyway - the session might still work
     else:
         logger.debug(f"New session {client_id} - no refresh needed")
 
@@ -211,15 +394,21 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
             while connection_active:
                 data = await websocket.receive_text()
                 logger.info(f"Received from client {client_id}: {data[:100]}")
+                logger.debug(f"Input handler processing message, connection_active={connection_active}")
                 
                 try:
                     message = json.loads(data)
                     input_text = message.get("input", "")
                     if input_text:
-                        # Send input immediately for best responsiveness
-                        await session_manager.send_input(client_id, input_text, newline=False)
+                        # Send input immediately for best responsiveness (this is user input)
+                        try:
+                            await session_manager.send_input(client_id, input_text, newline=False, from_ai=False)
+                        except Exception as input_error:
+                            logger.error(f"Error sending input to session {client_id}: {input_error}")
+                            # Don't break the connection, just log the error and continue
+                            continue
                         
-                        # Notify AI proxy after sending (non-blocking)
+                        # Notify AI proxy after sending (non-blocking) - only for user input
                         ai_proxy = session_manager.get_ai_proxy(client_id)
                         if ai_proxy and ai_proxy.is_enabled():
                             ai_proxy.notify_user_input(input_text)
@@ -256,20 +445,34 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
                                     ai_proxy.set_monitor_callback(llm_monitor_callback)
                                     status = ai_proxy.get_status()
                                     logger.info(f"Status: {status}")
-                                    await websocket.send_json({"proxy_status": status})
+                                    try:
+                                        await websocket.send_json({"proxy_status": status})
+                                    except Exception as ws_error:
+                                        logger.debug(f"Failed to send proxy status: {ws_error}")
                             else:
                                 logger.error(f"❌ Failed to enable AI proxy for {client_id}")
-                                await websocket.send_json({"error": "Failed to enable AI proxy"})
+                                try:
+                                    await websocket.send_json({"error": "Failed to enable AI proxy"})
+                                except Exception as ws_error:
+                                    logger.debug(f"Failed to send error message: {ws_error}")
                         elif proxy_cmd.get("disable"):
                             logger.info(f"🔧 Disabling AI proxy for {client_id}")
                             await session_manager.disable_ai_proxy(client_id)
                             logger.info(f"✅ Disabled AI proxy for {client_id}")
-                            await websocket.send_json({"proxy_status": {"enabled": False}})
+                            try:
+                                await websocket.send_json({"proxy_status": {"enabled": False}})
+                            except Exception as ws_error:
+                                logger.debug(f"Failed to send proxy disable status: {ws_error}")
                 except json.JSONDecodeError as e:
                     logger.error(f"JSON decode error from client {client_id}: {e}")
+                    # Continue processing other messages despite JSON error
                 except Exception as e:
-                    logger.error(f"Error sending input for {client_id}: {e}")
-                    break
+                    logger.error(f"Error processing message for {client_id}: {e}")
+                    # Log the error but continue processing other messages
+                    # Only break if it's a critical connection error
+                    if "connection" in str(e).lower() or "websocket" in str(e).lower():
+                        logger.error(f"Critical connection error, stopping input handler: {e}")
+                        break
         except WebSocketDisconnect as e:
             # Normal disconnect codes: 1000 (normal), 1001 (going away), 1012 (service restart)
             if e.code in [1000, 1001, 1012]:
@@ -279,6 +482,9 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
             connection_active = False
         except Exception as e:
             logger.error(f"Input handler error for {client_id}: {e}")
+            logger.error(f"Exception type: {type(e).__name__}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             connection_active = False
 
     async def handle_output():
@@ -342,9 +548,13 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
     except Exception as e:
         connection_active = False
         logger.error(f"WebSocket error for client {client_id}: {e}")
+        logger.error(f"WebSocket exception type: {type(e).__name__}")
+        import traceback
+        logger.error(f"WebSocket traceback: {traceback.format_exc()}")
     finally:
         connection_active = False
         logger.info(f"WebSocket connection closed for client {client_id}")
+        logger.info(f"Connection closed - connection_active set to False")
         
         # Clear the monitor callback for this session's AI proxy
         try:
@@ -356,11 +566,24 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
         
         # Clean up session when WebSocket closes
         try:
-            await session_manager.close_session(client_id)
+            if session_manager and client_id:
+                await session_manager.close_session(client_id)
+        except KeyError as e:
+            # Session was already closed or doesn't exist - this is normal during browser refresh
+            logger.debug(f"Session {client_id} was already closed: {e}")
         except Exception as e:
             logger.error(f"Error closing session {client_id}: {e}")
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host=Config.WEB_HOST, port=Config.WEB_PORT)
+    uvicorn.run(
+        app, 
+        host=Config.WEB_HOST, 
+        port=Config.WEB_PORT,
+        access_log=True,
+        server_header=False,
+        date_header=False,
+        forwarded_allow_ips="*",  # Allow forwarded headers from any IP (for Cloudflare)
+        proxy_headers=True,       # Trust proxy headers
+    )

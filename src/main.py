@@ -48,6 +48,11 @@ async def main():
         log_level="info",
         ssl_certfile=Config.WEB_SSL_CERT if Config.WEB_SSL_CERT else None,
         ssl_keyfile=Config.WEB_SSL_KEY if Config.WEB_SSL_KEY else None,
+        access_log=True,
+        server_header=False,
+        date_header=False,
+        forwarded_allow_ips="*",  # Allow forwarded headers from any IP (for Cloudflare)
+        proxy_headers=True,       # Trust proxy headers
     )
     server = uvicorn.Server(config)
     
