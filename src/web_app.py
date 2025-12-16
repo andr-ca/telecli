@@ -336,7 +336,8 @@ async def websocket_implementation(websocket: WebSocket, client_id: str):
     # If registration fails, it means there's already an active connection
     if not session_manager.register_connection(client_id, websocket):
         logger.warning(f"Connection already exists for {client_id}, closing duplicate")
-        await websocket.close(code=1000, reason="Connection already exists")
+        # Use code 4000 (custom) to indicate duplicate connection - frontend should not retry
+        await websocket.close(code=4000, reason="Connection already exists")
         return
     
     logger.info(f"WebSocket connected for {client_id} from IP {client_ip}")

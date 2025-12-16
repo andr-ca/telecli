@@ -1224,12 +1224,17 @@
                     isConnected = false;
                     console.log(`WebSocket closed: code=${event.code}, reason=${event.reason}`);
 
-                    // Only reconnect if not intentionally closed (code 1000 = normal close)
+                    // Handle different close codes
                     if (event.code === 1008) {
                         // Authentication error
                         updateStatus('Authentication failed', 'error');
                         localStorage.removeItem('terminal-auth-token');
                         setTimeout(() => connectWebSocket(), 1000);
+                    } else if (event.code === 4000) {
+                        // Duplicate connection - another tab is already connected
+                        // Don't reconnect, just show status
+                        updateStatus('Another tab is connected', 'warning');
+                        console.log('Duplicate connection rejected - another tab is already connected');
                     } else if (event.code !== 1000) {
                         // Unexpected close - reconnect
                         updateStatus('Disconnected - Reconnecting...', 'warning');
