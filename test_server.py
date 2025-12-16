@@ -4,8 +4,7 @@ Simple test server to debug Cloudflare tunnel issues
 """
 import uvicorn
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 
 app = FastAPI(title="TeleCLI Test Server")
@@ -29,7 +28,7 @@ async def log_requests(request: Request, call_next):
         print(f"Error processing request: {e}")
         return JSONResponse(
             status_code=500,
-            content={"error": str(e)}
+            content={"error": "Internal server error"}
         )
 
 @app.get("/")

@@ -3,7 +3,6 @@
 Test CSS loading for both local and tunnel access
 """
 import requests
-import sys
 
 def test_css_loading():
     """Test CSS file accessibility"""

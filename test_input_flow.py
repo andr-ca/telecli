@@ -3,7 +3,6 @@
 Test the complete input flow from WebSocket to terminal
 """
 import asyncio
-import json
 import logging
 import sys
 import os

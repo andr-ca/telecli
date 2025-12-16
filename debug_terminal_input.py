@@ -11,7 +11,6 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
 from src.session_manager import SessionManager
-from src.config import Config
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG, format='[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s')
@@ -28,7 +27,7 @@ async def test_terminal_input():
     try:
         # Create a session
         print(f"📝 Creating session: {test_session_id}")
-        session = await session_manager.get_session(test_session_id)
+        await session_manager.get_session(test_session_id)
         print(f"✅ Session created successfully")
         
         # Test basic input

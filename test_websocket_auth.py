@@ -5,7 +5,6 @@ Test WebSocket authentication for Cloudflare tunnel
 import asyncio
 import websockets
 import json
-import sys
 
 async def test_websocket_auth():
     """Test WebSocket connection with authentication"""
