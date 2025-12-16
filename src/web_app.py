@@ -332,9 +332,10 @@ async def websocket_implementation(websocket: WebSocket, client_id: str):
     # Track connection state
     connection_active = True
     
-    # Register this connection (simple - one connection per session)
-    session_manager.register_connection(client_id, websocket)
-    logger.info(f"WebSocket connected for {client_id} from IP {client_ip}")
+    # Register this connection and get connection ID
+    # The connection ID is used to detect when this connection has been replaced
+    connection_id = session_manager.register_connection(client_id, websocket)
+    logger.info(f"WebSocket connected for {client_id} from IP {client_ip} (conn_id={connection_id})")
     
     # Set up LLM monitoring callback for this client
     async def llm_monitor_callback(entry_type: str, data: dict):
@@ -394,8 +395,11 @@ async def websocket_implementation(websocket: WebSocket, client_id: str):
         nonlocal connection_active
         try:
             while connection_active:
-                # Connection management will close old connections via WebSocket close
-                # No need to check for outdated connections here
+                # Check if this connection has been replaced by a newer one
+                if not session_manager.is_connection_current(client_id, connection_id):
+                    logger.info(f"Input handler stopping - connection {connection_id} replaced for {client_id}")
+                    connection_active = False
+                    break
                 
                 data = await websocket.receive_text()
                 logger.info(f"Received from client {client_id}: {data[:100]}")
@@ -499,8 +503,11 @@ async def websocket_implementation(websocket: WebSocket, client_id: str):
                 if not connection_active:
                     break  # Stop if connection is closed
                 
-                # Connection management will close old connections via WebSocket close
-                # No need to check for outdated connections here
+                # Check if this connection has been replaced by a newer one
+                if not session_manager.is_connection_current(client_id, connection_id):
+                    logger.info(f"Output handler stopping - connection {connection_id} replaced for {client_id}")
+                    connection_active = False
+                    break
                 
                 if chunk:
                     # Check if AI proxy is enabled for this session
@@ -533,14 +540,16 @@ async def websocket_implementation(websocket: WebSocket, client_id: str):
                 if not connection_active:
                     break
                 
-                # Don't stop AI proxy checker based on connection time - only stop when connection is actually closed
-                # The connection management will close old connections, which will set connection_active = False
+                # Check if this connection has been replaced by a newer one
+                if not session_manager.is_connection_current(client_id, connection_id):
+                    logger.info(f"AI proxy checker stopping - connection {connection_id} replaced for {client_id}")
+                    connection_active = False
+                    break
                 
                 ai_proxy = session_manager.get_ai_proxy(client_id)
                 if ai_proxy and ai_proxy.is_enabled():
-                    logger.debug(f"🤖 Calling AI proxy process_output for {client_id}")
+                    logger.debug(f"🤖 Calling AI proxy process_output for {client_id} (conn_id={connection_id})")
                     await ai_proxy.process_output()
-                # Remove debug logging for "no AI proxy" to reduce log spam
         except Exception as e:
             logger.debug(f"AI proxy checker ended for {client_id}: {e}")
 

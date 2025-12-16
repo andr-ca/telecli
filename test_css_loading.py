@@ -27,7 +27,7 @@ def test_css_loading():
     # Test tunnel CSS access
     print("2. Testing tunnel CSS access...")
     try:
-        response = requests.get("https://code.andr.ca/telecli/style.css", timeout=10)
+        response = requests.get("https://<full cf domain>/<path>/style.css", timeout=10)
         if response.status_code == 200:
             print(f"✅ Tunnel CSS loaded successfully ({len(response.text)} bytes)")
             print(f"   Content-Type: {response.headers.get('content-type', 'unknown')}")
@@ -41,7 +41,7 @@ def test_css_loading():
     # Test main page access
     print("3. Testing main page access...")
     try:
-        response = requests.get("https://code.andr.ca/telecli/", timeout=10)
+        response = requests.get("https://<full cf domain>/<path>/", timeout=10)
         if response.status_code == 200:
             print(f"✅ Tunnel main page loaded successfully")
             # Check if CSS link is present

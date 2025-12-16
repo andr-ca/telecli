@@ -44,6 +44,9 @@ class SessionManager:
         self.monitor_callback = None  # Callback for LLM monitoring
         # Simplified connection tracking - just track if session has active connection
         self.active_websocket: dict[str, any] = {}  # Single WebSocket per session
+        # Connection ID tracking - increments each time a new connection is registered
+        # Used to detect when a connection has been replaced by a newer one
+        self.connection_id: dict[str, int] = {}  # Current connection ID per session
         # Session persistence tracking (for browser refresh reconnection)
         self.disconnected_sessions: dict[str, datetime] = {}  # Track when sessions disconnected
         self.cleanup_tasks: dict[str, asyncio.Task] = {}  # Pending cleanup tasks
@@ -89,12 +92,30 @@ class SessionManager:
             await self.sessions[session_id].resize(rows, cols)
             logger.debug(f"Resized session {session_id} to {rows}x{cols}")
 
-    def register_connection(self, session_id: str, websocket=None) -> None:
-        """Register a WebSocket connection for a session (simple - one connection per session)"""
-        # Just store the connection - if there was an old one, it will be replaced
-        # The old connection's handlers will naturally stop when they try to use it
+    def register_connection(self, session_id: str, websocket=None) -> int:
+        """Register a WebSocket connection for a session (simple - one connection per session)
+        
+        Returns:
+            Connection ID that can be used to check if this connection is still active
+        """
+        # Increment connection ID - this invalidates any previous connection's tasks
+        if session_id not in self.connection_id:
+            self.connection_id[session_id] = 0
+        self.connection_id[session_id] += 1
+        conn_id = self.connection_id[session_id]
+        
+        # Store the connection - if there was an old one, it will be replaced
         self.active_websocket[session_id] = websocket
-        logger.info(f"Registered connection for {session_id}")
+        logger.info(f"Registered connection for {session_id} (conn_id={conn_id})")
+        return conn_id
+    
+    def is_connection_current(self, session_id: str, conn_id: int) -> bool:
+        """Check if the given connection ID is still the current active connection
+        
+        This is used by background tasks to detect when they should stop because
+        a newer connection has replaced them.
+        """
+        return self.connection_id.get(session_id) == conn_id
 
     def unregister_connection(self, session_id: str, websocket=None) -> bool:
         """Unregister a WebSocket connection for a session

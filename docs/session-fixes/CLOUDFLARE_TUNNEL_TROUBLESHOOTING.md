@@ -76,8 +76,8 @@ python test_server.py
 
 Then test:
 - Local: `http://localhost:8801/`
-- Tunnel: `https://code.andr.ca/telecli/`
-- Debug: `https://code.andr.ca/telecli/debug`
+- Tunnel: `https://<full cf domain>/<path>/`
+- Debug: `https://<full cf domain>/<path>/debug`
 
 ### 2. Check Server Logs
 Look for detailed request information in the logs:
@@ -97,10 +97,10 @@ python src/web_app.py
 ### Expected Headers from Cloudflare
 ```json
 {
-  "host": "code.andr.ca",
+  "host": "<full cf domain>",
   "x-forwarded-for": "your.ip.address",
   "x-forwarded-proto": "https",
-  "x-forwarded-host": "code.andr.ca",
+  "x-forwarded-host": "<full cf domain>",
   "cf-ray": "cloudflare-ray-id",
   "cf-connecting-ip": "your.ip.address"
 }
@@ -144,7 +144,7 @@ Comment out middleware to isolate the issue:
 Try different Cloudflare tunnel settings:
 ```yaml
 ingress:
-  - hostname: code.andr.ca
+  - hostname: <full cf domain>
     path: /telecli/*  # Note the wildcard
     service: http://localhost:8801
 ```
@@ -153,7 +153,7 @@ ingress:
 Configure tunnel to serve at root:
 ```yaml
 ingress:
-  - hostname: telecli.code.andr.ca  # Subdomain instead of path
+  - hostname: telecli.<full cf domain>  # Subdomain instead of path
     service: http://localhost:8801
 ```
 
@@ -161,20 +161,20 @@ ingress:
 
 1. **Test Server Response**
    ```bash
-   curl -v https://code.andr.ca/telecli/debug
+   curl -v https://<full cf domain>/<path>/debug
    ```
 
 2. **Check WebSocket**
    ```javascript
    // In browser console
-   const ws = new WebSocket('wss://code.andr.ca/telecli/ws/test-123');
+   const ws = new WebSocket('wss://<full cf domain>/<path>/ws/test-123');
    ws.onopen = () => console.log('WebSocket connected');
    ws.onerror = (e) => console.error('WebSocket error:', e);
    ```
 
 3. **Verify Authentication**
    ```bash
-   curl -v https://code.andr.ca/telecli/api/auth/required
+   curl -v https://<full cf domain>/<path>/api/auth/required
    ```
 
 ## 🚀 Next Steps

@@ -2,7 +2,7 @@
 
 ## 🌐 Issue Resolution
 
-The TeleCLI application was returning "invalid http request" when accessed through Cloudflare tunnel at `code.andr.ca/telecli`. This was due to path prefix handling issues.
+The TeleCLI application was returning "invalid http request" when accessed through Cloudflare tunnel at `<full cf domain>/<path>`. This was due to path prefix handling issues.
 
 ## 🔧 Fixes Implemented
 
@@ -52,7 +52,7 @@ fetch(`./reset/${sessionId}`)
 
 ### Path Resolution
 1. **Root Access**: `http://localhost:8801/` → Works as before
-2. **Tunnel Access**: `https://code.andr.ca/telecli/` → Now works correctly
+2. **Tunnel Access**: `https://<full cf domain>/<path>/` → Now works correctly
 3. **WebSocket**: Automatically adapts to the correct path prefix
 4. **API Calls**: Use relative paths that work with any base path
 
@@ -60,7 +60,7 @@ fetch(`./reset/${sessionId}`)
 ```javascript
 // Example URLs generated:
 // Local: ws://localhost:8801/ws/web-123456
-// Tunnel: wss://code.andr.ca/telecli/ws/web-123456
+// Tunnel: wss://<full cf domain>/<path>/ws/web-123456
 ```
 
 ## 🔍 Debugging Features
@@ -81,7 +81,7 @@ tunnel: your-tunnel-id
 credentials-file: /path/to/credentials.json
 
 ingress:
-  - hostname: code.andr.ca
+  - hostname: <full cf domain>
     path: /telecli
     service: http://localhost:8801
   - service: http_status:404
@@ -93,7 +93,7 @@ No changes needed to `.env` file. The application will work with:
 WEB_HOST=0.0.0.0
 WEB_PORT=8801
 AUTH_REQUIRED=true
-AUTH_TOKEN=13241324
+AUTH_TOKEN=password
 ```
 
 ## 🧪 Testing
@@ -105,9 +105,9 @@ AUTH_TOKEN=13241324
 
 ### Tunnel Testing
 1. Ensure Cloudflare tunnel is running
-2. Access: `https://code.andr.ca/telecli/`
+2. Access: `https://<full cf domain>/<path>/`
 3. Should show authentication modal
-4. Enter token: `13241324`
+4. Enter token: `password`
 5. Terminal should become available
 
 ### Debug Steps
@@ -129,7 +129,7 @@ AUTH_TOKEN=13241324
 - Ensure Cloudflare tunnel forwards all paths under `/telecli`
 
 ### Authentication Issues
-- Verify `AUTH_REQUIRED=true` and `AUTH_TOKEN=13241324` in `.env`
+- Verify `AUTH_REQUIRED=true` and `AUTH_TOKEN=password` in `.env`
 - Check that token is being passed correctly in WebSocket query params
 - Look for authentication errors in server logs
 
@@ -150,4 +150,4 @@ If issues persist, you can revert the changes:
 - ✅ Terminal functionality fully operational
 - ✅ Works both locally and through tunnel
 
-The application should now be fully functional when accessed through `https://code.andr.ca/telecli/` with proper authentication and all features working correctly.
+The application should now be fully functional when accessed through `https://<full cf domain>/<path>/` with proper authentication and all features working correctly.

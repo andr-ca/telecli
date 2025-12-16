@@ -67,10 +67,10 @@ async def websocket_implementation(websocket: WebSocket, client_id: str):
 ## 🚀 Expected Results
 
 ### Cloudflare Tunnel Access
-- `https://code.andr.ca/telecli/` → Serves main page
-- `https://code.andr.ca/telecli/debug` → Shows debug info
-- `https://code.andr.ca/telecli/api/auth/required` → Returns auth status
-- `wss://code.andr.ca/telecli/ws/session-id` → WebSocket connection
+- `https://<full cf domain>/<path>/` → Serves main page
+- `https://<full cf domain>/<path>/debug` → Shows debug info
+- `https://<full cf domain>/<path>/api/auth/required` → Returns auth status
+- `wss://<full cf domain>/<path>/ws/session-id` → WebSocket connection
 
 ### Local Access (Still Works)
 - `http://localhost:8801/` → Serves main page
@@ -82,25 +82,25 @@ async def websocket_implementation(websocket: WebSocket, client_id: str):
 
 ### 1. Test Main Page
 ```bash
-curl -v https://code.andr.ca/telecli/
+curl -v https://<full cf domain>/<path>/
 # Should return HTML content
 ```
 
 ### 2. Test Debug Endpoint
 ```bash
-curl -v https://code.andr.ca/telecli/debug
+curl -v https://<full cf domain>/<path>/debug
 # Should return JSON with request info
 ```
 
 ### 3. Test API Endpoints
 ```bash
-curl -v https://code.andr.ca/telecli/api/auth/required
+curl -v https://<full cf domain>/<path>/api/auth/required
 # Should return {"auth_required": true}
 ```
 
 ### 4. Test WebSocket (in browser console)
 ```javascript
-const ws = new WebSocket('wss://code.andr.ca/telecli/ws/test-123?token=13241324');
+const ws = new WebSocket('wss://<full cf domain>/<path>/ws/test-123?token=password');
 ws.onopen = () => console.log('Connected');
 ws.onerror = (e) => console.error('Error:', e);
 ```
@@ -136,7 +136,7 @@ app = FastAPI(root_path="/telecli")
 
 ### 3. Subdomain Approach
 ```yaml
-# Use telecli.code.andr.ca instead of code.andr.ca/telecli
+# Use telecli.<full cf domain> instead of <full cf domain>/<path>
 ```
 **Issue**: Requires DNS changes
 
@@ -155,8 +155,8 @@ app = FastAPI(root_path="/telecli")
 
 1. **Test all endpoints** through the tunnel
 2. **Verify WebSocket connections** work properly
-3. **Test authentication flow** with token `13241324`
+3. **Test authentication flow** with token `password`
 4. **Monitor logs** for any remaining 404 errors
 5. **Consider cleanup** if all routes work correctly
 
-The application should now be fully accessible through `https://code.andr.ca/telecli/` with all functionality working correctly.
+The application should now be fully accessible through `https://<full cf domain>/<path>/` with all functionality working correctly.

@@ -59,7 +59,7 @@ if __name__ == "__main__":
     print("Starting test server...")
     print("Access via:")
     print("  Local: http://localhost:8801/")
-    print("  Tunnel: https://code.andr.ca/telecli/")
+    print("  Tunnel: https://<full cf domain>/<path>/")
     print("  Debug: /debug endpoint for request info")
     print("  Test: /test endpoint for simple test")
     

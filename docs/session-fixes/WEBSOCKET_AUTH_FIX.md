@@ -97,11 +97,11 @@ python test_websocket_auth.py
 ### 2. Tunnel Testing
 ```bash
 # Test through Cloudflare tunnel
-curl -v https://code.andr.ca/telecli/api/auth/required
+curl -v https://<full cf domain>/<path>/api/auth/required
 # Should return: {"auth_required": true}
 
 # Test WebSocket in browser console
-const ws = new WebSocket('wss://code.andr.ca/telecli/ws/test-123?token=13241324');
+const ws = new WebSocket('wss://<full cf domain>/<path>/ws/test-123?token=password');
 ws.onopen = () => console.log('Connected!');
 ws.onerror = (e) => console.error('Error:', e);
 ```
@@ -111,12 +111,12 @@ ws.onerror = (e) => console.error('Error:', e);
 ### Local Access (localhost:8801)
 - `basePath = ""` (empty)
 - API calls: `/api/auth/required`, `/api/sessions`, etc.
-- WebSocket: `ws://localhost:8801/ws/{clientId}?token=13241324`
+- WebSocket: `ws://localhost:8801/ws/{clientId}?token=password`
 
-### Tunnel Access (code.andr.ca/telecli)
+### Tunnel Access (<full cf domain>/<path>)
 - `basePath = "/telecli"`
 - API calls: `/telecli/api/auth/required`, `/telecli/api/sessions`, etc.
-- WebSocket: `wss://code.andr.ca/telecli/ws/{clientId}?token=13241324`
+- WebSocket: `wss://<full cf domain>/<path>/ws/{clientId}?token=password`
 
 ## 🔄 Authentication Flow
 
@@ -135,7 +135,7 @@ ws.onerror = (e) => console.error('Error:', e);
 ## 🚀 Next Steps
 
 1. **Test the fix** through the Cloudflare tunnel
-2. **Verify authentication** works with token `13241324`
+2. **Verify authentication** works with token `password`
 3. **Test all functionality** (sessions, AI proxy, reset, etc.)
 4. **Monitor logs** for any remaining authentication issues
 5. **Clean up test files** once confirmed working

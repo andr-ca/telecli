@@ -8,7 +8,7 @@ Authentication has been enabled for the TeleCLI application with the following s
 ```bash
 # In .env file
 AUTH_REQUIRED=true
-AUTH_TOKEN=13241324
+AUTH_TOKEN=password
 ```
 
 ### How Authentication Works
@@ -24,7 +24,7 @@ AUTH_TOKEN=13241324
 1. User opens the TeleCLI web interface
 2. Application detects authentication is required
 3. Secure modal appears asking for authentication token
-4. User enters: `13241324`
+4. User enters: `password`
 5. Token is validated and stored in browser
 6. WebSocket connection established
 7. Terminal becomes available
@@ -65,7 +65,7 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
 
 ## 🔑 Access Credentials
 
-**Authentication Token**: `13241324`
+**Authentication Token**: `password`
 
 ## 📱 UI Elements
 
@@ -88,7 +88,7 @@ To test authentication:
 1. **Enable Auth**: Ensure `AUTH_REQUIRED=true` in `.env`
 2. **Start Server**: Run the application
 3. **Open Browser**: Navigate to the web interface
-4. **Enter Token**: Use `13241324` when prompted
+4. **Enter Token**: Use `password` when prompted
 5. **Verify Access**: Terminal should become available
 
 To test auth failure:

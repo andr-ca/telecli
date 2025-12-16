@@ -10,8 +10,8 @@ async def test_websocket_auth():
     """Test WebSocket connection with authentication"""
     
     # Test URLs
-    local_url = "ws://localhost:8801/ws/test-session-123?token=13241324"
-    tunnel_url = "wss://code.andr.ca/telecli/ws/test-session-123?token=13241324"
+    local_url = "ws://localhost:8801/ws/test-session-123?token=password"
+    tunnel_url = "wss://<full cf domain>/<path>/ws/test-session-123?token=password"
     
     print("Testing WebSocket authentication...")
     print(f"Local URL: {local_url}")
