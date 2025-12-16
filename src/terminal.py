@@ -179,6 +179,22 @@ class TerminalSession:
             logger.error(f"Error sending input to session {self.session_id}: {e}")
             raise RuntimeError(f"Failed to send input: {str(e)}")
 
+    async def refresh_prompt(self) -> None:
+        """Refresh the terminal prompt to ensure cursor is visible"""
+        if not self.is_active or not self.process:
+            logger.warning(f"Cannot refresh prompt - session {self.session_id} is not active")
+            return
+        
+        try:
+            # Send a sequence that will refresh the prompt without executing anything
+            # This is more effective than just \r for showing the cursor
+            self.process.send('\x15')  # Ctrl+U (clear line)
+            await asyncio.sleep(0.05)  # Brief delay
+            self.process.send('\r')    # Enter to show fresh prompt
+            logger.info(f"Refreshed prompt for session {self.session_id}")
+        except Exception as e:
+            logger.warning(f"Failed to refresh prompt for session {self.session_id}: {e}")
+
     async def stop(self) -> None:
         """Stop the terminal session and cleanup"""
         logger.info(f"Stopping terminal session {self.session_id}")

@@ -77,6 +77,12 @@ class SessionManager:
         await session.send_input(text, newline)
         logger.debug(f"✓ Sent input to session {session_id} (from_ai={from_ai})")
 
+    async def refresh_session_prompt(self, session_id: str) -> None:
+        """Refresh the terminal prompt for a session to ensure cursor is visible"""
+        if session_id in self.sessions:
+            await self.sessions[session_id].refresh_prompt()
+            logger.debug(f"Refreshed prompt for session {session_id}")
+
     async def resize_session(self, session_id: str, rows: int, cols: int) -> None:
         """Resize a terminal session"""
         if session_id in self.sessions:
