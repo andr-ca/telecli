@@ -92,6 +92,8 @@
                     </div>
 
                     <button id="session-btn" onclick="openSessionPicker()">📋 Sessions</button>
+                    <button id="refresh-btn" onclick="manualTerminalRefresh()" title="Refresh terminal connection">🔄
+                        Refresh</button>
                     <button id="reset-btn" onclick="resetSession()">🔁 Reset</button>
                     <button id="llm-monitor-btn" onclick="toggleLLMMonitor()">🔍 Monitor</button>
                     <button id="auth-btn" onclick="clearAuth()" style="display: none;">🔓 Auth</button>
@@ -366,10 +368,10 @@
                     updateStatus('Connected (checking responsiveness...)', 'warning');
                 }
 
-                // If no output for 15 seconds and we're connected, try to refresh (reduced from 20s)
-                if (timeSinceLastOutput > 15000 && isConnected && terminalRefreshAttempts < 3) {
-                    console.log(`Detecting potential stale terminal state (${Math.round(timeSinceLastOutput / 1000)}s since last output), attempting refresh...`);
-                    updateStatus(`Connected (refreshing terminal... ${terminalRefreshAttempts + 1}/3)`, 'warning');
+                // If no output for 20 seconds and we're connected, try to refresh (increased threshold)
+                if (timeSinceLastOutput > 20000 && isConnected && terminalRefreshAttempts < 3) {
+                    console.log(`Detecting potential stale terminal state (${Math.round(timeSinceLastOutput / 1000)}s since last output), attempting non-disruptive refresh...`);
+                    updateStatus(`Connected (checking responsiveness... ${terminalRefreshAttempts + 1}/3)`, 'warning');
                     // Reset recovery message flag when starting a new stale state episode
                     if (terminalRefreshAttempts === 0) {
                         recoveryMessageShown = false;
@@ -377,8 +379,8 @@
                     attemptTerminalRefresh();
                 }
 
-                // If still no output after 35 seconds and max attempts reached, force reconnection
-                if (timeSinceLastOutput > 35000 && isConnected && terminalRefreshAttempts >= 3) {
+                // If still no output after 45 seconds and max attempts reached, force reconnection
+                if (timeSinceLastOutput > 45000 && isConnected && terminalRefreshAttempts >= 3) {
                     console.log('Terminal appears completely stale, forcing reconnection...');
                     updateStatus('Reconnecting (terminal unresponsive)', 'error');
                     forceReconnection();
@@ -405,29 +407,28 @@
             console.log(`Terminal refresh attempt ${terminalRefreshAttempts}/3`);
 
             try {
-                // Progressive refresh strategies - start gentle, get more aggressive
+                // Non-disruptive refresh strategies that don't interfere with user's terminal
                 if (terminalRefreshAttempts === 1) {
-                    // Strategy 1: Gentle refresh with space + backspace
-                    ws.send(JSON.stringify({ input: ' \b' }));
-                    console.log('Applied gentle refresh (space + backspace)');
+                    // Strategy 1: Send invisible null character to test responsiveness
+                    ws.send(JSON.stringify({ input: '\x00' }));
+                    console.log('Applied invisible refresh (null character)');
                 } else if (terminalRefreshAttempts === 2) {
-                    // Strategy 2: Send Enter to trigger prompt redraw
-                    ws.send(JSON.stringify({ input: '\r' }));
-                    console.log('Applied Enter refresh');
+                    // Strategy 2: Send terminal query for cursor position (invisible to user)
+                    // This will trigger a response if terminal is responsive
+                    ws.send(JSON.stringify({ input: '\x1b[6n' }));
+                    console.log('Applied cursor position query refresh');
                 } else if (terminalRefreshAttempts === 3) {
-                    // Strategy 3: Multiple aggressive commands
-                    ws.send(JSON.stringify({ input: '\x03' })); // Ctrl+C
+                    // Strategy 3: Send terminal status query (still non-disruptive)
+                    // Only if previous methods failed, send a very gentle refresh
+                    ws.send(JSON.stringify({ input: '\x1b[5n' }));
+                    console.log('Applied terminal status query refresh');
+
+                    // If still no response after gentle methods, prepare for reconnection
                     setTimeout(() => {
-                        if (ws && isConnected) {
-                            ws.send(JSON.stringify({ input: '\x0C' })); // Ctrl+L
+                        if (terminalRefreshAttempts >= 3 && (Date.now() - lastOutputTime) > 2000) {
+                            console.log('All non-disruptive refresh attempts failed, will force reconnection...');
                         }
-                    }, 100);
-                    setTimeout(() => {
-                        if (ws && isConnected) {
-                            ws.send(JSON.stringify({ input: '\r' })); // Enter
-                        }
-                    }, 200);
-                    console.log('Applied aggressive refresh (Ctrl+C, Ctrl+L, Enter)');
+                    }, 1000);
                 }
 
                 // Check if refresh worked after a shorter delay
@@ -437,9 +438,6 @@
                         terminalRefreshAttempts = 0;
                         updateStatus('Connected', 'success');
                         console.log('Terminal refresh successful - terminal is responsive again');
-                    } else if (terminalRefreshAttempts >= 3) {
-                        // If all attempts failed, prepare for forced reconnection
-                        console.log('All refresh attempts failed, will force reconnection soon...');
                     }
                 }, 1500);
 
@@ -479,12 +477,12 @@
                 const staleDuration = Math.round((lastOutputTime - previousTime) / 1000);
                 console.log(`Terminal recovered from stale state after ${staleDuration}s (${terminalRefreshAttempts} refresh attempts)`);
 
-                // Show brief recovery message to user (only once per stale state episode and only for significant stale periods)
-                if (term && staleDuration > 15 && terminalRefreshAttempts >= 2 && !recoveryMessageShown) {
+                // Show brief recovery message to user (only for significant stale periods and non-disruptive)
+                if (staleDuration > 20 && terminalRefreshAttempts >= 2 && !recoveryMessageShown) {
                     recoveryMessageShown = true;
-                    setTimeout(() => {
-                        term.write('\r\n\x1b[32m[Terminal connection restored]\x1b[0m\r\n');
-                    }, 100);
+                    // Show message in status bar instead of terminal to avoid disruption
+                    updateStatus('Terminal connection restored', 'success');
+                    setTimeout(() => updateStatus('Connected', 'success'), 3000);
                 }
             }
 
@@ -1661,6 +1659,34 @@
                     })
                     .catch(e => console.error('Failed to reset'));
             }
+        }
+
+        function manualTerminalRefresh() {
+            if (!ws || !isConnected) {
+                updateStatus('Not connected - cannot refresh', 'error');
+                return;
+            }
+
+            console.log('Manual terminal refresh requested by user');
+            updateStatus('Refreshing terminal connection...', 'warning');
+
+            // Reset automatic refresh attempts to start fresh
+            terminalRefreshAttempts = 0;
+            lastOutputTime = Date.now() - 21000; // Trigger immediate refresh check
+
+            // Force a gentle refresh attempt
+            attemptTerminalRefresh();
+
+            // Provide user feedback
+            setTimeout(() => {
+                const recentOutput = Date.now() - lastOutputTime;
+                if (recentOutput < 3000) {
+                    updateStatus('Terminal refreshed successfully', 'success');
+                    setTimeout(() => updateStatus('Connected', 'success'), 2000);
+                } else {
+                    updateStatus('Refresh may not have worked - try again or reset session', 'warning');
+                }
+            }, 2000);
         }
 
 
