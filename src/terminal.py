@@ -186,11 +186,10 @@ class TerminalSession:
             return
         
         try:
-            # Send a terminal status query - this is invisible and non-disruptive
-            # It just triggers the terminal to respond, which helps xterm.js show the cursor
-            # ESC[5n = Device Status Report (DSR) - terminal responds with ESC[0n
-            self.process.send('\x1b[5n')
-            logger.debug(f"Sent terminal status query for session {self.session_id}")
+            # Send space + backspace - this triggers terminal output without changing anything
+            # The terminal will echo the space and then delete it, making the cursor visible
+            self.process.send(' \b')
+            logger.debug(f"Sent cursor refresh for session {self.session_id}")
         except Exception as e:
             logger.warning(f"Failed to refresh prompt for session {self.session_id}: {e}")
 
