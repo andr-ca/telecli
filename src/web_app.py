@@ -334,7 +334,7 @@ async def websocket_implementation(websocket: WebSocket, client_id: str):
     logger.info(f"WebSocket connection_active initialized to True for {client_id}")
     
     # Register this connection and automatically close old ones
-    connection_count = session_manager.register_connection(client_id, websocket)
+    connection_count = await session_manager.register_connection(client_id, websocket)
     logger.info(f"WebSocket connection established for client {client_id} from IP {client_ip} (connection #{connection_count})")
     
     # Mark connection time for compatibility
@@ -383,8 +383,13 @@ async def websocket_implementation(websocket: WebSocket, client_id: str):
             except Exception as e:
                 logger.debug(f"Failed to send AI proxy status on reconnection: {e}")
         
-        # No automatic commands sent - preserve the exact session state
-        # User can press Enter themselves if they want to see current prompt
+        # Send a gentle terminal refresh to wake up the prompt and show cursor
+        # This fixes the issue where reconnected terminals don't show cursor
+        try:
+            await session_manager.send_input(client_id, "\r", newline=False, from_ai=False)
+            logger.info(f"Sent terminal refresh command to wake up session {client_id}")
+        except Exception as e:
+            logger.debug(f"Failed to send terminal refresh: {e}")
     else:
         logger.debug(f"New session {client_id} - creating fresh terminal")
 

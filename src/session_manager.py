@@ -83,23 +83,34 @@ class SessionManager:
             await self.sessions[session_id].resize(rows, cols)
             logger.debug(f"Resized session {session_id} to {rows}x{cols}")
 
-    def register_connection(self, session_id: str, websocket=None) -> int:
+    async def register_connection(self, session_id: str, websocket=None) -> int:
         """Register a new WebSocket connection for a session"""
         if session_id not in self.active_connections:
             self.active_connections[session_id] = 0
             self.active_websockets[session_id] = []
         
-        # CRITICAL FIX: Close old connections immediately but allow brief overlap for terminal output
-        if len(self.active_websockets[session_id]) >= 2:
+        # CRITICAL FIX: Close old connections immediately when ANY exist
+        if len(self.active_websockets[session_id]) >= 1:
             logger.warning(f"🔧 CLOSING {len(self.active_websockets[session_id])} old connections for {session_id}")
-            # Close all existing connections except keep space for the new one
+            # Close all existing connections immediately and wait for them to close
+            close_tasks = []
             for old_ws in self.active_websockets[session_id]:
                 try:
                     # Close immediately - the duplication is worse than brief connection interruption
-                    asyncio.create_task(old_ws.close(code=1000, reason="Superseded by new connection"))
-                    logger.info(f"✅ Closed old connection for {session_id}")
+                    task = asyncio.create_task(old_ws.close(code=1000, reason="Superseded by new connection"))
+                    close_tasks.append(task)
+                    logger.info(f"✅ Initiated close for old connection for {session_id}")
                 except Exception as e:
                     logger.debug(f"Error closing old connection: {e}")
+            
+            # Wait for all close operations to complete (with timeout)
+            if close_tasks:
+                try:
+                    await asyncio.wait_for(asyncio.gather(*close_tasks, return_exceptions=True), timeout=1.0)
+                    logger.info(f"✅ All old connections closed for {session_id}")
+                except asyncio.TimeoutError:
+                    logger.warning(f"⚠️ Timeout waiting for old connections to close for {session_id}")
+            
             # Clear the list for the new connection
             self.active_websockets[session_id] = []
             self.active_connections[session_id] = 0
@@ -109,7 +120,13 @@ class SessionManager:
             self.active_websockets[session_id].append(websocket)
         self.active_connections[session_id] += 1
         connection_count = self.active_connections[session_id]
-        logger.info(f"Registered connection for {session_id}, total connections: {connection_count}")
+        
+        # Log error if we still have multiple connections after cleanup
+        if connection_count > 1:
+            logger.error(f"🚨 MULTIPLE CONNECTIONS ({connection_count}) for session {session_id} - WILL CAUSE DUPLICATION!")
+            logger.error(f"🚨 This is the root cause of terminal output duplication!")
+        else:
+            logger.info(f"Registered connection for {session_id}, total connections: {connection_count}")
         
         return connection_count
 
