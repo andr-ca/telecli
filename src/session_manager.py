@@ -46,6 +46,7 @@ class SessionManager:
         self.cleanup_tasks: dict[str, asyncio.Task] = {}  # Pending cleanup tasks
         self.active_connections: dict[str, int] = {}  # Track active WebSocket connections per session
         self.latest_connection_time: dict[str, datetime] = {}  # Track latest connection time per session
+        self.active_websockets: dict[str, list] = {}  # Track actual WebSocket objects per session
 
     async def get_session(self, session_id: str, client_ip: Optional[str] = None) -> TerminalSession:
         """Get or create a session for the given ID"""
@@ -82,18 +83,32 @@ class SessionManager:
             await self.sessions[session_id].resize(rows, cols)
             logger.debug(f"Resized session {session_id} to {rows}x{cols}")
 
-    def register_connection(self, session_id: str) -> int:
+    def register_connection(self, session_id: str, websocket=None) -> int:
         """Register a new WebSocket connection for a session"""
         if session_id not in self.active_connections:
             self.active_connections[session_id] = 0
+            self.active_websockets[session_id] = []
+        
+        # CRITICAL FIX: Close all existing connections immediately
+        if self.active_websockets[session_id]:
+            logger.warning(f"🔧 CLOSING {len(self.active_websockets[session_id])} existing connections for {session_id}")
+            for old_ws in self.active_websockets[session_id]:
+                try:
+                    # Save task to prevent garbage collection
+                    close_task = asyncio.create_task(old_ws.close(code=1000, reason="Superseded by new connection"))
+                    logger.info(f"✅ Scheduled close for old connection for {session_id}")
+                except Exception as e:
+                    logger.debug(f"Error closing old connection: {e}")
+            # Clear the list
+            self.active_websockets[session_id] = []
+            self.active_connections[session_id] = 0
+        
+        # Add the new connection
+        if websocket:
+            self.active_websockets[session_id].append(websocket)
         self.active_connections[session_id] += 1
         connection_count = self.active_connections[session_id]
         logger.info(f"Registered connection for {session_id}, total connections: {connection_count}")
-        
-        # CRITICAL: Warn about multiple connections - this causes duplication
-        if connection_count > 1:
-            logger.error(f"🚨 MULTIPLE CONNECTIONS ({connection_count}) for session {session_id} - WILL CAUSE DUPLICATION!")
-            logger.error(f"🚨 This is the root cause of terminal output duplication!")
         
         return connection_count
 
@@ -117,9 +132,16 @@ class SessionManager:
             return True
         return False
 
-    def unregister_connection(self, session_id: str):
+    def unregister_connection(self, session_id: str, websocket=None):
         """Unregister a WebSocket connection for a session"""
         if session_id in self.active_connections:
+            # Remove from websocket list if provided
+            if websocket and session_id in self.active_websockets:
+                try:
+                    self.active_websockets[session_id].remove(websocket)
+                except ValueError:
+                    pass  # WebSocket not in list
+            
             self.active_connections[session_id] -= 1
             connection_count = self.active_connections[session_id]
             logger.info(f"Unregistered connection for {session_id}, remaining connections: {connection_count}")
@@ -128,6 +150,8 @@ class SessionManager:
                 # Also clean up connection time tracking when no connections remain
                 if session_id in self.latest_connection_time:
                     del self.latest_connection_time[session_id]
+                if session_id in self.active_websockets:
+                    del self.active_websockets[session_id]
                 logger.info(f"No more connections for {session_id}, cleaned up tracking")
 
     async def get_output_stream(self, session_id: str, client_ip: Optional[str] = None):

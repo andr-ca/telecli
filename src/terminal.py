@@ -96,6 +96,14 @@ class TerminalSession:
             # Give the shell a moment to initialize and send initial output
             await asyncio.sleep(0.1)
             
+            # Send a simple command to trigger initial prompt display
+            try:
+                # Send empty command to get prompt
+                self.process.send('\r')
+                logger.debug(f"Sent initial carriage return to trigger prompt for {self.session_id}")
+            except Exception as e:
+                logger.warning(f"Failed to send initial prompt trigger for {self.session_id}: {e}")
+            
             logger.info(f"Started terminal session {self.session_id} with shell: {self.shell}")
             return True
         except Exception as e:

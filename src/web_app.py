@@ -329,18 +329,16 @@ async def websocket_implementation(websocket: WebSocket, client_id: str):
     if not client_ip and websocket.client:
         client_ip = websocket.client.host
     
-    # Register this connection and check if we need to close old ones
-    connection_count = session_manager.register_connection(client_id)
-    logger.info(f"WebSocket connection established for client {client_id} from IP {client_ip} (connection #{connection_count})")
-    
-    # CRITICAL FIX: Close old connections if multiple exist
-    connection_time = session_manager.mark_latest_connection(client_id)
-    if connection_count > 1:
-        logger.warning(f"🔧 ENFORCING SINGLE CONNECTION: New connection will supersede old ones for {client_id}")
-
     # Track connection state
     connection_active = True
     logger.info(f"WebSocket connection_active initialized to True for {client_id}")
+    
+    # Register this connection and automatically close old ones
+    connection_count = session_manager.register_connection(client_id, websocket)
+    logger.info(f"WebSocket connection established for client {client_id} from IP {client_ip} (connection #{connection_count})")
+    
+    # Mark connection time for compatibility
+    connection_time = session_manager.mark_latest_connection(client_id)
     
     # Set up LLM monitoring callback for this client
     async def llm_monitor_callback(entry_type: str, data: dict):
@@ -585,7 +583,7 @@ async def websocket_implementation(websocket: WebSocket, client_id: str):
         
         # Unregister this connection
         try:
-            session_manager.unregister_connection(client_id)
+            session_manager.unregister_connection(client_id, websocket)
         except Exception as e:
             logger.debug(f"Error unregistering connection for {client_id}: {e}")
         
