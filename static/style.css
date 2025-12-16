@@ -132,17 +132,19 @@ header {
 .controls-compact {
     display: flex;
     align-items: center;
-    gap: 6px;
-    flex-wrap: wrap;
+    gap: 4px;
+    flex-wrap: nowrap;
     flex-shrink: 0;
+    overflow: hidden;
 }
 
 .controls-compact button {
-    padding: 8px 12px;
-    font-size: 13px;
+    padding: 6px 10px;
+    font-size: 12px;
     min-width: auto;
-    height: 36px;
+    height: 32px;
     white-space: nowrap;
+    flex-shrink: 1;
 }
 
 .status-line {
@@ -1060,6 +1062,15 @@ body.theme-modern .submenu-divider {
     font-size: 16px !important;
 }
 
+/* Medium screens - more compact buttons */
+@media (max-width: 1024px) {
+    .controls-compact button {
+        padding: 6px 8px;
+        font-size: 11px;
+        height: 30px;
+    }
+}
+
 /* Mobile responsive adjustments */
 @media (max-width: 768px) {
     .submenu {
@@ -1117,12 +1128,12 @@ body.theme-modern .submenu-divider {
     }
 
     .controls-compact button {
-        padding: 6px 8px;
-        font-size: 11px;
-        height: 36px;
-        min-width: 44px;
+        padding: 5px 6px;
+        font-size: 10px;
+        height: 34px;
+        min-width: 40px;
         flex: 1;
-        max-width: 80px;
+        max-width: 70px;
         /* Apple's minimum touch target recommendation */
     }
 
