@@ -861,7 +861,12 @@
                     return;
                 }
 
-                sessionsList.innerHTML = data.sessions.map(session => `
+                sessionsList.innerHTML = data.sessions.map(session => {
+                    const shortId = session.id.length > 12 ? session.id.substring(4, 12) + '...' : session.id.substring(4);
+                    const createdDate = session.created_at !== 'unknown' ? new Date(session.created_at).toLocaleString() : 'Unknown';
+                    const clientIp = session.client_ip || 'Unknown';
+
+                    return `
                     <div class="session-item" style="
                         padding: 12px; 
                         margin: 8px 0; 
@@ -873,10 +878,12 @@
                         <div style="display: flex; justify-content: space-between; align-items: center;">
                             <div>
                                 <div style="font-weight: bold; margin-bottom: 4px;">
-                                    ${session.id === clientId ? '🔗 ' : ''}${session.id}
+                                    ${session.id === clientId ? '🔗 ' : ''}📋 ${shortId}
                                 </div>
-                                <div style="font-size: 12px; opacity: 0.7;">
-                                    Shell: ${session.shell} | Active: ${session.is_active ? '✅' : '❌'}
+                                <div style="font-size: 11px; opacity: 0.7; line-height: 1.3;">
+                                    🌐 IP: ${clientIp}<br>
+                                    🕒 Created: ${createdDate}<br>
+                                    🐚 Shell: ${session.shell} | ${session.is_active ? '✅ Active' : '❌ Inactive'}
                                 </div>
                             </div>
                             <button onclick="event.stopPropagation(); deleteSession('${session.id}')" 
@@ -886,7 +893,8 @@
                             </button>
                         </div>
                     </div>
-                `).join('');
+                    `;
+                }).join('');
             } catch (error) {
                 console.error('Failed to fetch sessions:', error);
                 document.getElementById('sessions-list').innerHTML = `
