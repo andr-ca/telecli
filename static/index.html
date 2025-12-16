@@ -347,7 +347,7 @@
             }
         }
 
-        // Stale state detection and recovery
+        // Connection health monitoring (not stale state - idle terminals are normal!)
         function startStaleStateMonitoring() {
             // Clear any existing interval
             if (staleStateCheckInterval) {
@@ -359,38 +359,24 @@
             terminalRefreshAttempts = 0;
             recoveryMessageShown = false;
 
-            // Check for stale state every 5 seconds for more responsive detection
+            // Monitor WebSocket connection health, not terminal output
+            // Idle terminals are NORMAL - don't assume no output = broken connection
             staleStateCheckInterval = setInterval(() => {
-                const timeSinceLastOutput = Date.now() - lastOutputTime;
-
-                // Update status to show potential stale state
-                if (timeSinceLastOutput > 15000 && isConnected && terminalRefreshAttempts === 0) {
-                    updateStatus('Connected (checking responsiveness...)', 'warning');
+                // Only check actual WebSocket connection state
+                if (ws && ws.readyState === WebSocket.OPEN && isConnected) {
+                    // Connection is healthy - nothing to do
+                    // Don't trigger refresh just because terminal is idle!
+                    return;
                 }
 
-                // If no output for 20 seconds and we're connected, try to refresh (increased threshold)
-                if (timeSinceLastOutput > 20000 && isConnected && terminalRefreshAttempts < 3) {
-                    console.log(`Detecting potential stale terminal state (${Math.round(timeSinceLastOutput / 1000)}s since last output), attempting non-disruptive refresh...`);
-                    updateStatus(`Connected (checking responsiveness... ${terminalRefreshAttempts + 1}/3)`, 'warning');
-                    // Reset recovery message flag when starting a new stale state episode
-                    if (terminalRefreshAttempts === 0) {
-                        recoveryMessageShown = false;
-                    }
-                    attemptTerminalRefresh();
-                }
-
-                // If still no output after 45 seconds and max attempts reached, force reconnection
-                if (timeSinceLastOutput > 45000 && isConnected && terminalRefreshAttempts >= 3) {
-                    console.log('Terminal appears completely stale, forcing reconnection...');
-                    updateStatus('Reconnecting (terminal unresponsive)', 'error');
+                // If WebSocket is not open but we think we're connected, there's a real problem
+                if (isConnected && (!ws || ws.readyState !== WebSocket.OPEN)) {
+                    console.log('WebSocket connection lost, attempting reconnection...');
+                    updateStatus('Connection lost - reconnecting...', 'warning');
+                    isConnected = false;
                     forceReconnection();
                 }
-
-                // Reset status to normal if terminal is responsive
-                if (timeSinceLastOutput < 10000 && isConnected && terminalRefreshAttempts === 0) {
-                    updateStatus('Connected', 'success');
-                }
-            }, 5000);
+            }, 10000); // Check every 10 seconds
         }
 
         function stopStaleStateMonitoring() {
@@ -401,45 +387,25 @@
         }
 
         function attemptTerminalRefresh() {
+            // This function is now only called manually by user request
+            // We no longer automatically refresh idle terminals - idle is NORMAL!
             if (!ws || !isConnected) return;
 
             terminalRefreshAttempts++;
-            console.log(`Terminal refresh attempt ${terminalRefreshAttempts}/3`);
+            console.log(`Manual terminal refresh attempt ${terminalRefreshAttempts}`);
 
             try {
-                // Non-disruptive refresh strategies that don't interfere with user's terminal
-                if (terminalRefreshAttempts === 1) {
-                    // Strategy 1: Send invisible null character to test responsiveness
-                    ws.send(JSON.stringify({ input: '\x00' }));
-                    console.log('Applied invisible refresh (null character)');
-                } else if (terminalRefreshAttempts === 2) {
-                    // Strategy 2: Send terminal query for cursor position (invisible to user)
-                    // This will trigger a response if terminal is responsive
-                    ws.send(JSON.stringify({ input: '\x1b[6n' }));
-                    console.log('Applied cursor position query refresh');
-                } else if (terminalRefreshAttempts === 3) {
-                    // Strategy 3: Send terminal status query (still non-disruptive)
-                    // Only if previous methods failed, send a very gentle refresh
-                    ws.send(JSON.stringify({ input: '\x1b[5n' }));
-                    console.log('Applied terminal status query refresh');
+                // Send a gentle, non-disruptive refresh
+                // Use terminal status query which is invisible to user
+                ws.send(JSON.stringify({ input: '\x1b[5n' }));
+                console.log('Applied terminal status query (non-disruptive)');
 
-                    // If still no response after gentle methods, prepare for reconnection
-                    setTimeout(() => {
-                        if (terminalRefreshAttempts >= 3 && (Date.now() - lastOutputTime) > 2000) {
-                            console.log('All non-disruptive refresh attempts failed, will force reconnection...');
-                        }
-                    }, 1000);
-                }
+                // Update last output time to reset any monitoring
+                lastOutputTime = Date.now();
 
-                // Check if refresh worked after a shorter delay
                 setTimeout(() => {
-                    const recentOutput = Date.now() - lastOutputTime;
-                    if (recentOutput < 2000) {
-                        terminalRefreshAttempts = 0;
-                        updateStatus('Connected', 'success');
-                        console.log('Terminal refresh successful - terminal is responsive again');
-                    }
-                }, 1500);
+                    terminalRefreshAttempts = 0;
+                }, 2000);
 
             } catch (e) {
                 console.error('Failed to send terminal refresh:', e);
@@ -469,24 +435,10 @@
         }
 
         function updateLastOutputTime() {
-            const previousTime = lastOutputTime;
+            // Simply track when we last received output
+            // This is used for manual refresh feedback, not automatic recovery
             lastOutputTime = Date.now();
-
-            // If we were in a stale state and now got output, log recovery
-            if (terminalRefreshAttempts > 0) {
-                const staleDuration = Math.round((lastOutputTime - previousTime) / 1000);
-                console.log(`Terminal recovered from stale state after ${staleDuration}s (${terminalRefreshAttempts} refresh attempts)`);
-
-                // Show brief recovery message to user (only for significant stale periods and non-disruptive)
-                if (staleDuration > 20 && terminalRefreshAttempts >= 2 && !recoveryMessageShown) {
-                    recoveryMessageShown = true;
-                    // Show message in status bar instead of terminal to avoid disruption
-                    updateStatus('Terminal connection restored', 'success');
-                    setTimeout(() => updateStatus('Connected', 'success'), 3000);
-                }
-            }
-
-            terminalRefreshAttempts = 0; // Reset attempts when we get output
+            terminalRefreshAttempts = 0;
         }
 
         // Panel resizer functionality
@@ -1662,31 +1614,40 @@
         }
 
         function manualTerminalRefresh() {
-            if (!ws || !isConnected) {
-                updateStatus('Not connected - cannot refresh', 'error');
+            // Check WebSocket connection state
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                updateStatus('Connection lost - reconnecting...', 'warning');
+                forceReconnection();
+                return;
+            }
+
+            if (!isConnected) {
+                updateStatus('Not connected - please wait...', 'warning');
                 return;
             }
 
             console.log('Manual terminal refresh requested by user');
-            updateStatus('Refreshing terminal connection...', 'warning');
+            updateStatus('Checking connection...', 'warning');
 
-            // Reset automatic refresh attempts to start fresh
-            terminalRefreshAttempts = 0;
-            lastOutputTime = Date.now() - 21000; // Trigger immediate refresh check
+            // Send a non-disruptive ping to verify connection
+            try {
+                ws.send(JSON.stringify({ input: '\x1b[5n' })); // Terminal status query
 
-            // Force a gentle refresh attempt
-            attemptTerminalRefresh();
-
-            // Provide user feedback
-            setTimeout(() => {
-                const recentOutput = Date.now() - lastOutputTime;
-                if (recentOutput < 3000) {
-                    updateStatus('Terminal refreshed successfully', 'success');
-                    setTimeout(() => updateStatus('Connected', 'success'), 2000);
-                } else {
-                    updateStatus('Refresh may not have worked - try again or reset session', 'warning');
-                }
-            }, 2000);
+                // Update status after brief delay
+                setTimeout(() => {
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        updateStatus('Connection OK', 'success');
+                        setTimeout(() => updateStatus('Connected', 'success'), 1500);
+                    } else {
+                        updateStatus('Connection lost - reconnecting...', 'warning');
+                        forceReconnection();
+                    }
+                }, 500);
+            } catch (e) {
+                console.error('Refresh failed:', e);
+                updateStatus('Connection error - reconnecting...', 'error');
+                forceReconnection();
+            }
         }
 
 
