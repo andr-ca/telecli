@@ -477,16 +477,31 @@
 
             let isResizing = false;
             let startX = 0;
+            let startY = 0;
             let startTerminalWidth = 0;
+            let startTerminalHeight = 0;
+
+            // Check if we're in mobile mode (vertical split)
+            function isMobileMode() {
+                return window.innerWidth <= 768;
+            }
 
             resizer.addEventListener('mousedown', (e) => {
                 isResizing = true;
-                startX = e.clientX;
-                startTerminalWidth = terminalPanel.offsetWidth;
+                const mobile = isMobileMode();
+
+                if (mobile) {
+                    startY = e.clientY;
+                    startTerminalHeight = terminalPanel.offsetHeight;
+                    document.body.style.cursor = 'row-resize';
+                } else {
+                    startX = e.clientX;
+                    startTerminalWidth = terminalPanel.offsetWidth;
+                    document.body.style.cursor = 'col-resize';
+                }
 
                 // Add visual feedback
                 resizer.classList.add('resizing');
-                document.body.style.cursor = 'col-resize';
                 document.body.style.userSelect = 'none';
 
                 e.preventDefault();
@@ -495,24 +510,51 @@
             document.addEventListener('mousemove', (e) => {
                 if (!isResizing) return;
 
-                const deltaX = e.clientX - startX;
-                const mainWidth = mainContent.offsetWidth;
-                const newTerminalWidth = startTerminalWidth + deltaX;
+                const mobile = isMobileMode();
 
-                // Set minimum and maximum widths (30% to 80% of total width)
-                const minWidth = mainWidth * 0.3;
-                const maxWidth = mainWidth * 0.8;
+                if (mobile) {
+                    // Vertical resizing for mobile
+                    const deltaY = e.clientY - startY;
+                    const mainHeight = mainContent.offsetHeight;
+                    const newTerminalHeight = startTerminalHeight + deltaY;
 
-                if (newTerminalWidth >= minWidth && newTerminalWidth <= maxWidth) {
-                    const terminalPercent = (newTerminalWidth / mainWidth) * 100;
-                    const monitorPercent = 100 - terminalPercent;
+                    // Set minimum and maximum heights (30% to 80% of total height)
+                    const minHeight = mainHeight * 0.3;
+                    const maxHeight = mainHeight * 0.8;
 
-                    terminalPanel.style.width = `${terminalPercent}%`;
-                    monitorPanel.style.width = `${monitorPercent}%`;
+                    if (newTerminalHeight >= minHeight && newTerminalHeight <= maxHeight) {
+                        const terminalPercent = (newTerminalHeight / mainHeight) * 100;
+                        const monitorPercent = 100 - terminalPercent;
 
-                    // Trigger terminal resize
-                    if (term && fitAddon) {
-                        setTimeout(() => fitAddon.fit(), 10);
+                        terminalPanel.style.height = `${terminalPercent}%`;
+                        monitorPanel.style.height = `${monitorPercent}%`;
+
+                        // Trigger terminal resize
+                        if (term && fitAddon) {
+                            setTimeout(() => fitAddon.fit(), 10);
+                        }
+                    }
+                } else {
+                    // Horizontal resizing for desktop
+                    const deltaX = e.clientX - startX;
+                    const mainWidth = mainContent.offsetWidth;
+                    const newTerminalWidth = startTerminalWidth + deltaX;
+
+                    // Set minimum and maximum widths (30% to 80% of total width)
+                    const minWidth = mainWidth * 0.3;
+                    const maxWidth = mainWidth * 0.8;
+
+                    if (newTerminalWidth >= minWidth && newTerminalWidth <= maxWidth) {
+                        const terminalPercent = (newTerminalWidth / mainWidth) * 100;
+                        const monitorPercent = 100 - terminalPercent;
+
+                        terminalPanel.style.width = `${terminalPercent}%`;
+                        monitorPanel.style.width = `${monitorPercent}%`;
+
+                        // Trigger terminal resize
+                        if (term && fitAddon) {
+                            setTimeout(() => fitAddon.fit(), 10);
+                        }
                     }
                 }
             });
@@ -525,12 +567,16 @@
                     document.body.style.userSelect = '';
 
                     // Save the current split ratio to localStorage
-                    const terminalPercent = (terminalPanel.offsetWidth / mainContent.offsetWidth) * 100;
-                    localStorage.setItem('llm-monitor-split-ratio', terminalPercent.toString());
+                    const mobile = isMobileMode();
+                    if (mobile) {
+                        const terminalPercent = (terminalPanel.offsetHeight / mainContent.offsetHeight) * 100;
+                        localStorage.setItem('llm-monitor-split-ratio-mobile', terminalPercent.toString());
+                    } else {
+                        const terminalPercent = (terminalPanel.offsetWidth / mainContent.offsetWidth) * 100;
+                        localStorage.setItem('llm-monitor-split-ratio', terminalPercent.toString());
+                    }
                 }
             });
-
-
         }
 
         function toggleLLMMonitor() {
@@ -556,16 +602,34 @@
 
                 // Restore saved split ratio or use default
                 const terminalPanel = document.getElementById('terminal-panel');
-                const savedRatio = localStorage.getItem('llm-monitor-split-ratio');
-                if (savedRatio) {
-                    const terminalPercent = parseFloat(savedRatio);
-                    const monitorPercent = 100 - terminalPercent;
-                    terminalPanel.style.width = `${terminalPercent}%`;
-                    monitorPanel.style.width = `${monitorPercent}%`;
+                const mobile = window.innerWidth <= 768;
+
+                if (mobile) {
+                    // Mobile: vertical split
+                    const savedRatio = localStorage.getItem('llm-monitor-split-ratio-mobile');
+                    if (savedRatio) {
+                        const terminalPercent = parseFloat(savedRatio);
+                        const monitorPercent = 100 - terminalPercent;
+                        terminalPanel.style.height = `${terminalPercent}%`;
+                        monitorPanel.style.height = `${monitorPercent}%`;
+                    } else {
+                        // Use default 60/40 split for mobile
+                        terminalPanel.style.height = '60%';
+                        monitorPanel.style.height = '40%';
+                    }
                 } else {
-                    // Use default 60/40 split
-                    terminalPanel.style.width = '60%';
-                    monitorPanel.style.width = '40%';
+                    // Desktop: horizontal split
+                    const savedRatio = localStorage.getItem('llm-monitor-split-ratio');
+                    if (savedRatio) {
+                        const terminalPercent = parseFloat(savedRatio);
+                        const monitorPercent = 100 - terminalPercent;
+                        terminalPanel.style.width = `${terminalPercent}%`;
+                        monitorPanel.style.width = `${monitorPercent}%`;
+                    } else {
+                        // Use default 60/40 split for desktop
+                        terminalPanel.style.width = '60%';
+                        monitorPanel.style.width = '40%';
+                    }
                 }
             } else {
                 // Hide monitor panel and resizer
@@ -574,9 +638,10 @@
                 mainContent.classList.remove('split-view');
                 btn.textContent = '🔍 LLM Monitor';
 
-                // Reset terminal panel width to full width
+                // Reset terminal panel dimensions to full size
                 const terminalPanel = document.getElementById('terminal-panel');
                 terminalPanel.style.width = '';
+                terminalPanel.style.height = '';
             }
 
             // Trigger terminal resize to fit new layout with multiple attempts

@@ -1137,6 +1137,46 @@ body.theme-modern .submenu-divider {
         /* Apple's minimum touch target recommendation */
     }
 
+    /* LLM Monitor - Stack vertically on mobile */
+    .main-content.split-view {
+        flex-direction: column;
+    }
+
+    .main-content.split-view .terminal-panel {
+        width: 100%;
+        height: 60%;
+    }
+
+    .llm-monitor-panel {
+        width: 100% !important;
+        height: 40% !important;
+        border-left: none;
+        border-top: 1px solid;
+    }
+
+    /* Change resizer to horizontal for vertical split */
+    .panel-resizer {
+        width: 100%;
+        height: 4px;
+        cursor: row-resize;
+    }
+
+    .panel-resizer::before {
+        width: 30px;
+        height: 2px;
+    }
+
+    /* Theme-specific border adjustments for mobile */
+    body.theme-matrix .llm-monitor-panel {
+        border-top: 1px solid rgba(0, 255, 65, 0.3);
+        border-left: none;
+    }
+
+    body.theme-modern .llm-monitor-panel {
+        border-top: 1px solid rgba(137, 180, 250, 0.3);
+        border-left: none;
+    }
+
 
 
     .mobile-controls-submenu {
