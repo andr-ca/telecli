@@ -655,7 +655,19 @@ Provide a concise summary:"""
             logger.debug("AI Proxy not enabled, skipping process_output")
             return
         
-        logger.debug(f"AI Proxy process_output called - enabled: {self.enabled}, buffer size: {len(self.output_buffer)}")
+        logger.info(f"🤖 AI Proxy process_output called - enabled: {self.enabled}, buffer size: {len(self.output_buffer)}")
+        
+        # Add detailed debugging for timeout conditions
+        current_time = asyncio.get_event_loop().time()
+        time_since_user_input = current_time - self.last_user_input_time if self.last_user_input_time > 0 else float('inf')
+        time_since_output = current_time - self.last_output_time if self.last_output_time > 0 else float('inf')
+        time_since_response = current_time - self.last_response_time if self.last_response_time > 0 else float('inf')
+        time_since_last_chunk = current_time - self.last_output_chunk_time if self.last_output_chunk_time > 0 else float('inf')
+        
+        logger.info(f"🕐 Timeouts: user_idle={time_since_user_input:.1f}s (need >{self.user_idle_timeout}s), "
+                   f"terminal_idle={time_since_output:.1f}s (need >{self.terminal_idle_timeout}s), "
+                   f"cooldown={time_since_response:.1f}s (need >{self.response_cooldown}s), "
+                   f"streaming={time_since_last_chunk:.1f}s (need >{self.streaming_detection_window}s)")
         
         if self.iteration_count >= self.max_iterations:
             logger.warning(f"AI Proxy max iterations ({self.max_iterations}) reached, disabling")
@@ -743,6 +755,8 @@ Provide a concise summary:"""
                 'context_length': len(context),
                 'prompt_length': prompt_length
             })
+        else:
+            logger.warning("🔍 No monitor callback available - monitor won't show updates")
         
         try:
             start_time = asyncio.get_event_loop().time()

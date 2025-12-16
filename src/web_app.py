@@ -548,7 +548,13 @@ async def websocket_implementation(websocket: WebSocket, client_id: str):
                 
                 ai_proxy = session_manager.get_ai_proxy(client_id)
                 if ai_proxy and ai_proxy.is_enabled():
+                    logger.debug(f"🤖 Calling AI proxy process_output for {client_id}")
                     await ai_proxy.process_output()
+                else:
+                    if ai_proxy:
+                        logger.debug(f"🤖 AI proxy exists but not enabled for {client_id}")
+                    else:
+                        logger.debug(f"🤖 No AI proxy found for {client_id}")
         except Exception as e:
             logger.debug(f"AI proxy checker ended for {client_id}: {e}")
 
