@@ -351,9 +351,10 @@ async def websocket_implementation(websocket: WebSocket, client_id: str):
         ai_proxy.set_monitor_callback(llm_monitor_callback)
     
     # Check if this is a reconnection to an existing session
-    # If reconnecting, send multiple refresh attempts to ensure terminal responsiveness
-    session_existed = client_id in session_manager.sessions
+    session_existed = session_manager.is_session_available(client_id)
     if session_existed:
+        # Mark session as reconnected (cancels any pending cleanup)
+        await session_manager.mark_session_reconnected(client_id)
         try:
             session = await session_manager.get_session(client_id)
             logger.info(f"Reconnecting to existing session {client_id} - applying terminal refresh")
@@ -564,15 +565,13 @@ async def websocket_implementation(websocket: WebSocket, client_id: str):
         except Exception as e:
             logger.debug(f"Error clearing monitor callback for {client_id}: {e}")
         
-        # Clean up session when WebSocket closes
+        # Mark session as disconnected (keeps it alive for reconnection)
+        # Session will be closed after grace period if no reconnection
         try:
             if session_manager and client_id:
-                await session_manager.close_session(client_id)
-        except KeyError as e:
-            # Session was already closed or doesn't exist - this is normal during browser refresh
-            logger.debug(f"Session {client_id} was already closed: {e}")
+                await session_manager.mark_session_disconnected(client_id)
         except Exception as e:
-            logger.error(f"Error closing session {client_id}: {e}")
+            logger.error(f"Error marking session {client_id} as disconnected: {e}")
 
 
 if __name__ == "__main__":

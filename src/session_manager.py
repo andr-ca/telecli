@@ -2,7 +2,9 @@
 Session manager for coordinating multiple terminal sessions
 """
 import logging
+import asyncio
 from typing import Optional
+from datetime import datetime, timedelta
 from src.config import Config
 from src.terminal import TerminalSession
 from src.ai_proxy import AIProxy
@@ -10,6 +12,9 @@ from src.llm_providers import *  # Register all providers
 from src.llm_provider import LLMProviderFactory
 
 logger = logging.getLogger(__name__)
+
+# Grace period before closing disconnected sessions (allows browser refresh)
+SESSION_DISCONNECT_GRACE_PERIOD = 60  # seconds
 
 
 class SessionManager:
@@ -21,6 +26,8 @@ class SessionManager:
         self.session_count = 0
         self.ai_proxies: dict[str, AIProxy] = {}  # AI proxy per session
         self.monitor_callback = None  # Callback for LLM monitoring
+        self.disconnected_sessions: dict[str, datetime] = {}  # Track disconnected sessions
+        self.cleanup_tasks: dict[str, asyncio.Task] = {}  # Pending cleanup tasks
 
     async def get_session(self, session_id: str) -> TerminalSession:
         """Get or create a session for the given ID"""
@@ -140,6 +147,63 @@ class SessionManager:
     def get_ai_proxy(self, session_id: str) -> Optional[AIProxy]:
         """Get AI proxy for a session"""
         return self.ai_proxies.get(session_id)
+
+    async def mark_session_disconnected(self, session_id: str) -> None:
+        """Mark a session as disconnected but keep it alive for reconnection"""
+        if session_id not in self.sessions:
+            logger.debug(f"Session {session_id} not found, nothing to mark as disconnected")
+            return
+        
+        # Cancel any existing cleanup task for this session
+        if session_id in self.cleanup_tasks:
+            self.cleanup_tasks[session_id].cancel()
+            try:
+                await self.cleanup_tasks[session_id]
+            except asyncio.CancelledError:
+                pass
+            del self.cleanup_tasks[session_id]
+        
+        # Mark as disconnected
+        self.disconnected_sessions[session_id] = datetime.now()
+        logger.info(f"Session {session_id} marked as disconnected, will be kept alive for {SESSION_DISCONNECT_GRACE_PERIOD}s")
+        
+        # Schedule cleanup after grace period
+        async def delayed_cleanup():
+            try:
+                await asyncio.sleep(SESSION_DISCONNECT_GRACE_PERIOD)
+                # Check if session is still disconnected (not reconnected)
+                if session_id in self.disconnected_sessions:
+                    logger.info(f"Grace period expired for session {session_id}, closing session")
+                    await self.close_session(session_id)
+                    if session_id in self.disconnected_sessions:
+                        del self.disconnected_sessions[session_id]
+            except asyncio.CancelledError:
+                logger.debug(f"Cleanup task cancelled for session {session_id} (likely reconnected)")
+            except Exception as e:
+                logger.error(f"Error in delayed cleanup for session {session_id}: {e}")
+        
+        self.cleanup_tasks[session_id] = asyncio.create_task(delayed_cleanup())
+
+    async def mark_session_reconnected(self, session_id: str) -> bool:
+        """Mark a session as reconnected, cancelling any pending cleanup"""
+        if session_id in self.disconnected_sessions:
+            # Cancel pending cleanup
+            if session_id in self.cleanup_tasks:
+                self.cleanup_tasks[session_id].cancel()
+                try:
+                    await self.cleanup_tasks[session_id]
+                except asyncio.CancelledError:
+                    pass
+                del self.cleanup_tasks[session_id]
+            
+            del self.disconnected_sessions[session_id]
+            logger.info(f"Session {session_id} reconnected successfully")
+            return True
+        return False
+
+    def is_session_available(self, session_id: str) -> bool:
+        """Check if a session exists and is available for reconnection"""
+        return session_id in self.sessions
 
     async def close_session(self, session_id: str) -> None:
         """Close a specific session"""
