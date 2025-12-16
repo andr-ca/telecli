@@ -319,14 +319,7 @@
                 }
             });
 
-            // Restore saved split ratio
-            const savedRatio = localStorage.getItem('llm-monitor-split-ratio');
-            if (savedRatio) {
-                const terminalPercent = parseFloat(savedRatio);
-                const monitorPercent = 100 - terminalPercent;
-                terminalPanel.style.width = `${terminalPercent}%`;
-                monitorPanel.style.width = `${monitorPercent}%`;
-            }
+
         }
 
         function toggleLLMMonitor() {
@@ -349,12 +342,30 @@
                     initializeResizer();
                     window.resizerInitialized = true;
                 }
+
+                // Restore saved split ratio or use default
+                const terminalPanel = document.getElementById('terminal-panel');
+                const savedRatio = localStorage.getItem('llm-monitor-split-ratio');
+                if (savedRatio) {
+                    const terminalPercent = parseFloat(savedRatio);
+                    const monitorPercent = 100 - terminalPercent;
+                    terminalPanel.style.width = `${terminalPercent}%`;
+                    monitorPanel.style.width = `${monitorPercent}%`;
+                } else {
+                    // Use default 60/40 split
+                    terminalPanel.style.width = '60%';
+                    monitorPanel.style.width = '40%';
+                }
             } else {
                 // Hide monitor panel and resizer
                 monitorPanel.style.display = 'none';
                 resizer.style.display = 'none';
                 mainContent.classList.remove('split-view');
                 btn.textContent = '🔍 LLM Monitor';
+
+                // Reset terminal panel width to full width
+                const terminalPanel = document.getElementById('terminal-panel');
+                terminalPanel.style.width = '';
             }
 
             // Trigger terminal resize to fit new layout
