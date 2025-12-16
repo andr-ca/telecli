@@ -73,6 +73,8 @@ class Config:
     AUTH_TOKEN = os.getenv("AUTH_TOKEN", "")
     ALLOWED_COMMANDS_ONLY = os.getenv("ALLOWED_COMMANDS_ONLY", "false").lower() == "true"
     ALLOWED_COMMANDS_FILE = os.getenv("ALLOWED_COMMANDS_FILE", "")
+    # Telegram user whitelist (comma-separated user IDs)
+    ALLOWED_TELEGRAM_USERS = os.getenv("ALLOWED_TELEGRAM_USERS", "").strip()
 
     # Command filtering (lazily initialized)
     command_filter: Optional[CommandFilter] = None
@@ -81,20 +83,31 @@ class Config:
     AI_PROXY_ENABLED = os.getenv("AI_PROXY_ENABLED", "false").lower() == "true"
     AI_PROXY_PROVIDER = os.getenv("AI_PROXY_PROVIDER", "gemini-cli")  # gemini-cli, claude-cli
     AI_PROXY_SYSTEM_PROMPT = os.getenv("AI_PROXY_SYSTEM_PROMPT",
-        "You are a keyboard. Your job is to type responses to terminal prompts.\n"
+        "You are an intelligent terminal automation assistant. Your job is to analyze terminal prompts and provide appropriate responses.\n"
         "\n"
-        "RULES:\n"
-        "1. Numbered menu? Type ONLY the number: 1\n"
-        "2. Yes/no question? Type ONLY: y or n\n"
-        "3. Text prompt? Type brief answer\n"
-        "4. NEVER say 'I cannot' or explain limitations\n"
-        "5. NEVER explain your choice\n"
-        "6. NEVER add quotes, punctuation, or extra text\n"
-        "7. If you see code reviews, bug reports, or long text: type '1' or 'y' to proceed\n"
-        "8. When unsure: type '1' (first option) or 'y' (yes)\n"
+        "CORE PRINCIPLES:\n"
+        "- Analyze the terminal screen carefully to understand what input is needed\n"
+        "- Provide ONLY the exact text to type (no explanations or formatting)\n"
+        "- Choose the most logical and safe option when multiple choices exist\n"
+        "- Default to non-destructive actions when uncertain\n"
         "\n"
-        "You are ONLY typing input. Your entire response gets typed into the terminal exactly as-is.")
+        "RESPONSE PATTERNS:\n"
+        "- Numbered menus: Select the most appropriate option number\n"
+        "- Yes/No questions: Choose based on context and safety\n"
+        "- Text input: Provide brief, relevant responses\n"
+        "- File operations: Use safe, standard paths and names\n"
+        "- Confirmations: Generally confirm unless clearly destructive\n"
+        "\n"
+        "OUTPUT FORMAT: Your entire response becomes terminal input exactly as typed.")
     AI_PROXY_MAX_ITERATIONS = _get_int("AI_PROXY_MAX_ITERATIONS", 50, min_value=1)
+    
+    # AI Proxy Buffer and Context Configuration
+    AI_PROXY_BUFFER_SIZE = _get_int("AI_PROXY_BUFFER_SIZE", 1000, min_value=100)
+    AI_PROXY_CONTEXT_LINES = _get_int("AI_PROXY_CONTEXT_LINES", 500, min_value=50)
+    AI_PROXY_MAX_CONTEXT_SIZE = _get_int("AI_PROXY_MAX_CONTEXT_SIZE", 5000, min_value=1000)
+    
+    # LLM Provider Timeouts
+    LLM_TIMEOUT_SECONDS = _get_int("LLM_TIMEOUT_SECONDS", 90, min_value=10)
 
     @classmethod
     def validate(cls):

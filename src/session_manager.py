@@ -20,6 +20,7 @@ class SessionManager:
         self.sessions: dict[str, TerminalSession] = {}
         self.session_count = 0
         self.ai_proxies: dict[str, AIProxy] = {}  # AI proxy per session
+        self.monitor_callback = None  # Callback for LLM monitoring
 
     async def get_session(self, session_id: str) -> TerminalSession:
         """Get or create a session for the given ID"""
@@ -78,14 +79,19 @@ class SessionManager:
             logger.error(f"Failed to create LLM provider: {provider_name}")
             return False
         
+        # Get list of fallback providers (all available except the primary one)
+        available_providers = LLMProviderFactory.get_available_providers()
+        fallback_names = [name for name, _ in available_providers if name != provider_name]
+        
         # Use custom system prompt or config default
         prompt = system_prompt or Config.AI_PROXY_SYSTEM_PROMPT
         
-        # Create AI proxy
+        # Create AI proxy with fallback providers
         ai_proxy = AIProxy(
             llm_provider=llm_provider,
             system_prompt=prompt,
-            max_iterations=Config.AI_PROXY_MAX_ITERATIONS
+            max_iterations=Config.AI_PROXY_MAX_ITERATIONS,
+            fallback_providers=fallback_names
         )
         
         # Set callback to send input to terminal
@@ -101,10 +107,15 @@ class SessionManager:
             logger.info(f"✓ Text '{text}' + CR sent to session {session_id}")
         
         ai_proxy.set_input_callback(send_input)
+        
+        # Set up monitoring callback if available
+        if hasattr(self, 'monitor_callback') and self.monitor_callback:
+            ai_proxy.set_monitor_callback(self.monitor_callback)
+        
         ai_proxy.enable()
         
         self.ai_proxies[session_id] = ai_proxy
-        logger.info(f"Enabled AI proxy for session {session_id} with provider {provider_name}")
+        logger.info(f"Enabled AI proxy for session {session_id} with provider {provider_name}, fallbacks: {fallback_names if fallback_names else 'none'}")
         return True
     
     async def disable_ai_proxy(self, session_id: str):
@@ -146,3 +157,10 @@ class SessionManager:
             "max_sessions": self.max_sessions,
             "total_created": self.session_count,
         }
+    
+    def set_monitor_callback(self, callback):
+        """Set monitoring callback for all AI proxies"""
+        self.monitor_callback = callback
+        # Update existing AI proxies
+        for ai_proxy in self.ai_proxies.values():
+            ai_proxy.set_monitor_callback(callback)

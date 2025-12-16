@@ -45,7 +45,9 @@ async def main():
         web_app,
         host=Config.WEB_HOST,
         port=Config.WEB_PORT,
-        log_level="info"
+        log_level="info",
+        ssl_certfile=Config.WEB_SSL_CERT if Config.WEB_SSL_CERT else None,
+        ssl_keyfile=Config.WEB_SSL_KEY if Config.WEB_SSL_KEY else None,
     )
     server = uvicorn.Server(config)
     

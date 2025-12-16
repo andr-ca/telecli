@@ -8,11 +8,28 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
+class LLMResponse:
+    """Response object from LLM provider"""
+    def __init__(self, text: Optional[str] = None, error_code: Optional[int] = None, error_message: Optional[str] = None):
+        self.text = text
+        self.error_code = error_code  # HTTP-like error codes (e.g., 429 for rate limit)
+        self.error_message = error_message
+        self.is_success = text is not None and error_code is None
+    
+    def __bool__(self):
+        return self.is_success
+    
+    def __str__(self):
+        if self.is_success:
+            return self.text
+        return f"Error {self.error_code}: {self.error_message}"
+
+
 class LLMProvider(ABC):
     """Abstract base class for LLM providers"""
     
     @abstractmethod
-    async def generate(self, prompt: str, system_prompt: Optional[str] = None) -> Optional[str]:
+    async def generate(self, prompt: str, system_prompt: Optional[str] = None) -> LLMResponse:
         """
         Generate a response from the LLM
         
@@ -21,7 +38,7 @@ class LLMProvider(ABC):
             system_prompt: Optional system instructions
             
         Returns:
-            Generated text or None if failed
+            LLMResponse object containing text, error_code, and error_message
         """
         pass
     
@@ -71,13 +88,19 @@ class LLMProviderFactory:
         return provider
     
     @classmethod
-    def get_available_providers(cls) -> list[str]:
-        """Get list of available provider names"""
+    def get_available_providers(cls) -> list[tuple[str, LLMProvider]]:
+        """
+        Get all available providers as (name, instance) tuples
+        Filters for providers that are actually available
+        
+        Returns:
+            List of (provider_name, provider_instance) tuples sorted by name
+        """
         available = []
-        for name, provider_class in cls._providers.items():
-            provider = provider_class()
-            if provider.is_available():
-                available.append(name)
+        for name in sorted(cls._providers.keys()):
+            provider = cls.create(name)
+            if provider and provider.is_available():
+                available.append((name, provider))
         return available
     
     @classmethod

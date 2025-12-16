@@ -23,7 +23,7 @@ class TerminalSession:
         self.shell = shell or Config.TERMINAL_SHELL
         self.process: Optional[pexpect.spawn] = None
         self.is_active = False
-        self.output_queue: asyncio.Queue = asyncio.Queue()
+        self.output_queue: asyncio.Queue = asyncio.Queue(maxsize=100)  # Limit queue size for better performance
         self.read_task: Optional[asyncio.Task] = None
 
     def _clean_output(self, text: str) -> str:
@@ -40,17 +40,19 @@ class TerminalSession:
         try:
             while self.is_active and self.process:
                 try:
-                    # Read output in non-blocking mode with short timeout
-                    chunk = self.process.read_nonblocking(size=1024, timeout=0.1)
+                    # Read output in non-blocking mode with very short timeout for responsiveness
+                    chunk = self.process.read_nonblocking(size=4096, timeout=0.01)  # Increased buffer, reduced timeout
                     if chunk:
                         # Clean the output
                         cleaned_chunk = self._clean_output(chunk)
                         if cleaned_chunk:  # Only queue if there's content after cleaning
-                            logger.debug(f"Read {len(cleaned_chunk)} bytes from session {self.session_id}")
+                            # Only log in debug mode to reduce overhead
+                            if logger.isEnabledFor(logging.DEBUG):
+                                logger.debug(f"Read {len(cleaned_chunk)} bytes from session {self.session_id}")
                             await self.output_queue.put(cleaned_chunk)
                 except pexpect.TIMEOUT:
-                    # No data available, continue
-                    await asyncio.sleep(0.05)  # Small delay to avoid busy loop
+                    # No data available, very small delay to avoid busy loop but maintain responsiveness
+                    await asyncio.sleep(0.001)  # Reduced from 0.05 to 0.001 seconds
                 except pexpect.EOF:
                     logger.warning(f"EOF reached in session {self.session_id}")
                     self.is_active = False
@@ -127,22 +129,20 @@ class TerminalSession:
                 raise RuntimeError(f"Command not allowed: {text[:50]}")
 
         try:
-            # Run pexpect operations in executor to avoid blocking async loop
-            loop = asyncio.get_event_loop()
-            
-            # Handle special control sequences
+            # Handle special control sequences synchronously for speed
             if text == "\x03":  # Ctrl+C
-                await loop.run_in_executor(None, self.process.sendintr)
+                self.process.sendintr()
                 logger.info(f"Sent Ctrl+C to session {self.session_id}")
             elif text == "\x04":  # Ctrl+D
-                await loop.run_in_executor(None, self.process.sendeof)
+                self.process.sendeof()
                 logger.info(f"Sent Ctrl+D to session {self.session_id}")
             else:
+                # Send input directly without executor for better responsiveness
                 if newline:
-                    await loop.run_in_executor(None, self.process.sendline, text)
+                    self.process.sendline(text)
                     logger.info(f"Sent line to session {self.session_id}: {repr(text[:50])}")
                 else:
-                    await loop.run_in_executor(None, self.process.send, text)
+                    self.process.send(text)
                     logger.debug(f"Sent input to session {self.session_id}: {text[:50]}...")
         except Exception as e:
             logger.error(f"Error sending input to session {self.session_id}: {e}")

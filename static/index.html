@@ -101,6 +101,29 @@
             </div>
         </div>
 
+        <!-- Auth Token Modal -->
+        <div id="auth-token-modal" class="modal-backdrop"
+            style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1000; align-items: center; justify-content: center;">
+            <div class="modal-content" style="padding: 30px; max-width: 400px; width: 90%;">
+                <h2 style="margin-top: 0;">🔐 Authentication Required</h2>
+
+                <div style="margin: 20px 0;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">Authentication Token:</label>
+                    <input type="password" id="auth-token-input"
+                        style="width: 100%; padding: 10px; border-radius: 8px; font-size: 14px; outline: none;"
+                        placeholder="Enter your authentication token">
+                    <small style="color: #7f8c8d; margin-top: 5px; display: block;">
+                        This token will be stored securely in your browser for future sessions.
+                    </small>
+                </div>
+
+                <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 25px;">
+                    <button onclick="cancelAuthToken()" class="modal-cancel-btn">Skip</button>
+                    <button onclick="submitAuthToken()" class="modal-apply-btn">Connect</button>
+                </div>
+            </div>
+        </div>
+
         <!-- LLM Monitor Subwindow -->
         <div id="llm-monitor" class="llm-monitor" style="display: none;">
             <div class="llm-monitor-header">
@@ -170,6 +193,58 @@
             const authBtn = document.getElementById('auth-btn');
             const hasToken = localStorage.getItem('terminal-auth-token');
             authBtn.style.display = hasToken ? 'inline-block' : 'none';
+        }
+
+        // Auth token modal functions
+        function showAuthTokenModal() {
+            return new Promise((resolve) => {
+                const modal = document.getElementById('auth-token-modal');
+                const input = document.getElementById('auth-token-input');
+
+                // Store resolve function for modal buttons
+                window.authTokenResolve = resolve;
+
+                // Clear previous input and show modal
+                input.value = '';
+                modal.style.display = 'flex';
+
+                // Focus on input
+                setTimeout(() => input.focus(), 100);
+
+                // Handle Enter key
+                input.onkeydown = (e) => {
+                    if (e.key === 'Enter') {
+                        submitAuthToken();
+                    } else if (e.key === 'Escape') {
+                        cancelAuthToken();
+                    }
+                };
+            });
+        }
+
+        function submitAuthToken() {
+            const input = document.getElementById('auth-token-input');
+            const token = input.value.trim();
+
+            // Hide modal
+            document.getElementById('auth-token-modal').style.display = 'none';
+
+            // Resolve with token (or empty string if none provided)
+            if (window.authTokenResolve) {
+                window.authTokenResolve(token);
+                delete window.authTokenResolve;
+            }
+        }
+
+        function cancelAuthToken() {
+            // Hide modal
+            document.getElementById('auth-token-modal').style.display = 'none';
+
+            // Resolve with null to indicate cancellation
+            if (window.authTokenResolve) {
+                window.authTokenResolve(null);
+                delete window.authTokenResolve;
+            }
         }
 
         function toggleLLMMonitor() {
@@ -623,10 +698,10 @@
             // Authentication is required, get token
             let token = localStorage.getItem('terminal-auth-token');
             if (!token) {
-                const userToken = prompt("Enter authentication token (or leave empty to skip):") || "";
-                if (userToken) {
-                    localStorage.setItem('terminal-auth-token', userToken);
-                    token = userToken;
+                // Show secure auth modal instead of insecure prompt
+                token = await showAuthTokenModal();
+                if (token) {
+                    localStorage.setItem('terminal-auth-token', token);
                 } else {
                     // User chose to skip authentication, try without token
                     console.log('Attempting connection without authentication token');

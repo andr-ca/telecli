@@ -13,9 +13,28 @@ logger = logging.getLogger(__name__)
 session_manager: SessionManager = None
 
 
+def is_telegram_user_allowed(user_id: int) -> bool:
+    """Check if Telegram user is in whitelist"""
+    if not Config.ALLOWED_TELEGRAM_USERS:
+        return True  # Whitelist disabled
+
+    allowed_ids = set(
+        int(uid.strip()) for uid in Config.ALLOWED_TELEGRAM_USERS.split(',')
+        if uid.strip()
+    )
+
+    return user_id in allowed_ids
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start command"""
     user_id = update.effective_user.id
+
+    if not is_telegram_user_allowed(user_id):
+        await update.message.reply_text("❌ You are not authorized to use this bot")
+        logger.warning(f"Unauthorized Telegram user: {user_id}")
+        return
+
     await update.message.reply_text(
         f"Welcome to TeleCLI! Your session ID is {user_id}.\n"
         f"Send any command and I'll execute it for you.\n\n"
@@ -28,6 +47,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /help command"""
+    user_id = update.effective_user.id
+    if not is_telegram_user_allowed(user_id):
+        await update.message.reply_text("❌ Unauthorized")
+        return
+
     await update.message.reply_text(
         "TeleCLI - Terminal access via Telegram\n\n"
         "Just send me any shell command and I'll execute it.\n\n"
@@ -40,14 +64,19 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /reset command"""
-    user_id = str(update.effective_user.id)
+    user_id = update.effective_user.id
+    if not is_telegram_user_allowed(user_id):
+        await update.message.reply_text("❌ Unauthorized")
+        return
+
+    user_id_str = str(user_id)
     try:
-        await session_manager.close_session(user_id)
+        await session_manager.close_session(user_id_str)
         await update.message.reply_text("✅ Session reset successfully")
-        logger.info(f"User {user_id} reset session")
+        logger.info(f"User {user_id_str} reset session")
     except Exception as e:
         await update.message.reply_text(f"❌ Error resetting session: {str(e)}")
-        logger.error(f"Error resetting session for {user_id}: {e}")
+        logger.error(f"Error resetting session for {user_id_str}: {e}")
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

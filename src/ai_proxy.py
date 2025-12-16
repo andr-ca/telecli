@@ -22,20 +22,22 @@ class AIProxy:
         self,
         llm_provider: LLMProvider,
         system_prompt: Optional[str] = None,
-        max_iterations: int = 10,
-        buffer_size: int = 1000,
-        context_lines: int = 500,
-        fallback_providers: Optional[list[str]] = None
+        max_iterations: Optional[int] = None,
+        buffer_size: Optional[int] = None,
+        context_lines: Optional[int] = None,
+        fallback_provider_names: Optional[list[str]] = None
     ):
+        from src.config import Config
+        
         self.llm_provider = llm_provider
         self.primary_provider_name = llm_provider.get_name()
-        self.fallback_provider_names = fallback_providers or []  # List of fallback provider names to try on 429
+        self.fallback_provider_names = fallback_provider_names or []  # List of fallback provider names to try on 429
         self.system_prompt = system_prompt or "You are helping automate terminal interactions. Provide brief, direct responses."
-        self.max_iterations = max_iterations
+        self.max_iterations = max_iterations or Config.AI_PROXY_MAX_ITERATIONS
         self.enabled = False
         self.iteration_count = 0
-        self.output_buffer = deque(maxlen=buffer_size)  # Keep output lines for full screen capture
-        self.context_lines = context_lines  # Number of lines to send to LLM for context
+        self.output_buffer = deque(maxlen=buffer_size or Config.AI_PROXY_BUFFER_SIZE)  # Keep output lines for full screen capture
+        self.context_lines = context_lines or Config.AI_PROXY_CONTEXT_LINES  # Number of lines to send to LLM for context
         self.last_output_time = 0
         self.last_output_chunk_time = 0  # Track when last output chunk arrived (for streaming detection)
         self.last_user_input_time = 0  # Track when user last typed
@@ -711,9 +713,10 @@ Provide a concise summary:"""
             user_context = f"\n\n--- USER COMMANDS (what the user typed, DO NOT repeat this) ---\n{recent_input}\n--- END USER COMMANDS ---"
         
         # Monitor and limit context size
-        if len(context) > 5000:  # Limit context to 5000 chars max
-            logger.warning(f"Context too large ({len(context)} chars), truncating...")
-            context = context[-5000:]  # Keep the end (most recent)
+        max_context_size = Config.AI_PROXY_MAX_CONTEXT_SIZE
+        if len(context) > max_context_size:
+            logger.warning(f"Context too large ({len(context)} chars), truncating to {max_context_size}...")
+            context = context[-max_context_size:]  # Keep the end (most recent)
         
         logger.info(f"🤖 Building LLM prompt with {len(context)} chars of context, {len(self.conversation_memory)} memory items, user_input={bool(self.user_input_buffer)}")
         logger.debug(f"Context preview: {context[:200]}...")

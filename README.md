@@ -7,6 +7,7 @@ A modern, feature-rich terminal interface accessible through web and Telegram us
 - 🌐 **Web Interface** - Beautiful, responsive terminal UI with WebSocket support
 - 📱 **Telegram Bot** - Full access via Telegram with command handlers
 - 🖥️ **Pexpect Terminal** - Real interactive terminal emulation
+- 🤖 **AI-Powered Automation** - Multiple LLM providers with intelligent fallback on rate limits
 - 📝 **Advanced Logging** - Multiple rotation strategies, configurable output
 - ⚙️ **Fully Configurable** - All settings via .env file
 - 🔄 **Session Management** - Isolated sessions per user
@@ -57,6 +58,28 @@ All settings are configured via `.env` file. See `.env.sample` for all available
 - `TERMINAL_SHELL` - bash, sh, zsh, etc. (default: bash)
 - `WEB_PORT` - Web server port (default: 8000)
 
+### AI Proxy Configuration
+
+Enable AI automation for terminal interactions with multiple LLM providers:
+
+```ini
+AI_PROXY_ENABLED=true
+AI_PROXY_PROVIDER=gemini-cli
+# Alternative providers: claude-cli, github-cli
+AI_PROXY_SYSTEM_PROMPT=You are helping automate terminal interactions...
+AI_PROXY_MAX_ITERATIONS=10
+```
+
+**Supported LLM Providers:**
+- `gemini-cli` - Google Gemini CLI
+- `claude-cli` - Anthropic Claude CLI
+- `github-cli` - GitHub Copilot (via gh CLI)
+
+The system automatically detects available providers and uses intelligent fallback:
+- If the primary provider hits rate limit (429), automatically switches to next available provider
+- Continues through available providers until success or all fail
+- Updates active provider if fallback succeeds
+
 ## Logging System
 
 The logging system supports multiple strategies:
@@ -82,6 +105,62 @@ The logging system supports multiple strategies:
 ### Cleanup
 - Automatically deletes oldest files when `LOG_DIR_MAX_SIZE` exceeded
 - Respects max file size with warnings
+
+## AI Proxy - Terminal Automation
+
+When enabled, the AI Proxy automatically responds to terminal prompts using configured LLM providers.
+
+### Features
+
+- **Automatic Prompt Detection** - Detects when terminal is waiting for input
+- **Intelligent Responses** - Provides appropriate answers to yes/no, numbered menus, and text prompts
+- **Multi-Provider Support** - Works with Gemini, Claude, or GitHub Copilot
+- **Automatic Fallback** - Switches to next provider on rate limits
+- **Context Awareness** - Maintains conversation history for better responses
+- **Memory Compression** - Summarizes older interactions to stay within context limits
+
+### How It Works
+
+1. **Initialization** - AIProxy gets primary provider + list of fallback providers
+2. **Detection** - Monitors terminal output for prompts (?, :, menus, etc.)
+3. **Context Building** - Prepares terminal screen output for LLM
+4. **Generation** - Sends context to primary provider
+5. **Fallback** - If 429 rate limit, tries next available provider automatically
+6. **Response** - Sends response back to terminal automatically
+7. **Memory** - Tracks interaction history and compresses when needed
+
+### Configuration Example
+
+```bash
+# Enable AI automation
+AI_PROXY_ENABLED=true
+
+# Set primary provider (gemini-cli, claude-cli, or github-cli)
+AI_PROXY_PROVIDER=gemini-cli
+
+# Custom system prompt (optional)
+AI_PROXY_SYSTEM_PROMPT="You are a helpful keyboard automation assistant. Provide brief responses."
+
+# Max iterations before disabling (prevents infinite loops)
+AI_PROXY_MAX_ITERATIONS=10
+```
+
+### Error Handling
+
+- **Rate Limits (429)** - Automatically switches to fallback provider
+- **Timeouts** - Logs error and continues (respects max iterations)
+- **Unavailable Providers** - Uses next in fallback chain
+- **No Providers** - Gracefully disables proxy
+
+### Logs
+
+Check `logs/llm_interactions.log` for detailed LLM request/response logs:
+```
+[2025-12-13 23:29:22] REQUEST to Gemini CLI at 2025-12-13T23:29:22.871122
+[2025-12-13 23:29:22] System Prompt: ...
+[2025-12-13 23:29:22] User Prompt: ...
+[2025-12-13 23:29:23] RESPONSE from Gemini CLI: ...
+```
 
 ## File Structure
 
@@ -118,14 +197,17 @@ telecli/
 ### Web Chat
 1. Start: `./run_web.sh`
 2. Open: http://localhost:8000
-3. Type commands and press Enter
-4. Click Reset to clear session
+3. Enable AI Proxy in settings (if providers are available)
+4. Type commands and press Enter
+5. AI will automatically respond to prompts if enabled
+6. Click Reset to clear session
 
 ### Telegram Bot
 1. Start: `python3 src/main.py`
 2. Find your bot on Telegram
 3. Send `/start`
 4. Send any shell command
+5. AI will assist if `AI_PROXY_ENABLED=true`
 
 ### Commands (Telegram)
 - `/start` - Welcome message
@@ -203,6 +285,8 @@ Use systemd service or Docker for reliability.
 - Adjust `TERMINAL_MAX_SESSIONS` based on available memory
 - Log cleanup is automatic, respects size limits
 - WebSocket handles many concurrent connections efficiently
+- AI Proxy processes output asynchronously without blocking terminal
+- Memory compression reduces context size for better performance
 
 ## Security Features
 
@@ -242,6 +326,51 @@ WEB_SSL_KEY=/path/to/key.pem
 - Logs may contain sensitive data
 - Use HTTPS in production
 - Enable authentication for production deployments
+- Be cautious with AI proxy - ensure prompts are from trusted sources
+- AI proxy respects command filtering when enabled
+
+## LLM Provider Setup
+
+### Google Gemini CLI
+
+```bash
+# Install gemini CLI
+pip install google-generativeai
+
+# Authenticate
+gemini auth
+
+# Verify
+which gemini
+```
+
+### Anthropic Claude CLI
+
+```bash
+# Install claude CLI
+pip install anthropic
+
+# Authenticate
+claude auth
+
+# Verify
+which claude
+```
+
+### GitHub Copilot CLI
+
+```bash
+# Install GitHub CLI
+brew install gh  # macOS
+# or visit https://github.com/cli/cli
+
+# Authenticate
+gh auth login
+gh copilot
+
+# Verify
+which gh
+```
 
 ## Future Enhancements
 

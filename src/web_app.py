@@ -192,10 +192,12 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
     if session_existed:
         try:
             session = await session_manager.get_session(client_id)
-            # For existing sessions, send a simple space+backspace to refresh the prompt
-            # This is completely non-intrusive and will show the current state
+            # Send a space followed by a backspace to the terminal.
+            # This is a well-known terminal trick: it causes the shell to redraw the current line,
+            # including the prompt, without altering the user's input. The visible effect is a subtle
+            # refresh of the prompt and current line, which is useful after reconnecting to an existing session.
             await asyncio.sleep(0.1)  # Small delay to ensure connection is ready
-            await session.send_input(" \b", newline=False)  # Space then backspace
+            await session.send_input(" \b", newline=False)
             logger.debug(f"Sent prompt refresh to existing session {client_id}")
         except Exception as e:
             logger.debug(f"Could not refresh existing session {client_id}: {e}")

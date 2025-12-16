@@ -56,7 +56,10 @@ class CommandFilter:
         if not command:
             return False
 
-        cmd_name = command.split()[0]
+        parts = command.split()
+        if not parts:
+            return False
+        cmd_name = parts[0]
 
         # Check if command is in allowed list
         is_allowed = cmd_name in self.allowed_commands
