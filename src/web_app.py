@@ -405,7 +405,8 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
         
         # Clean up session when WebSocket closes
         try:
-            await session_manager.close_session(client_id)
+            if session_manager and client_id:
+                await session_manager.close_session(client_id)
         except Exception as e:
             logger.error(f"Error closing session {client_id}: {e}")
 
