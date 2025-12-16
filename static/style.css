@@ -502,22 +502,68 @@ body.theme-modern .session-item:hover {
     box-shadow: 0 2px 8px rgba(137, 180, 250, 0.2);
 }
 
-/* LLM Monitor Styles */
-.llm-monitor {
-    position: fixed;
-    top: 20px;
-    right: 20px;
-    width: 400px;
-    height: 500px;
-    border-radius: 12px;
-    overflow: hidden;
-    z-index: 500;
+/* Main Content Layout */
+.main-content {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 120px);
+    /* Account for header */
     transition: all 0.3s ease;
-    resize: both;
-    min-width: 300px;
-    min-height: 200px;
-    max-width: 80vw;
-    max-height: 80vh;
+}
+
+.main-content.split-view {
+    flex-direction: row;
+}
+
+/* Terminal Panel */
+.terminal-panel {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    transition: width 0.3s ease;
+}
+
+.main-content.split-view .terminal-panel {
+    width: 60%;
+    /* Default split ratio */
+}
+
+/* Panel Resizer */
+.panel-resizer {
+    width: 4px;
+    background: rgba(255, 255, 255, 0.1);
+    cursor: col-resize;
+    transition: background-color 0.2s ease;
+    position: relative;
+}
+
+.panel-resizer:hover,
+.panel-resizer.resizing {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+.panel-resizer::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 2px;
+    height: 30px;
+    background: currentColor;
+    opacity: 0.5;
+}
+
+/* LLM Monitor Panel */
+.llm-monitor-panel {
+    display: none;
+    flex-direction: column;
+    width: 40%;
+    /* Default split ratio */
+    height: 100%;
+    border-radius: 0;
+    overflow: hidden;
 }
 
 .llm-monitor-header {
@@ -598,10 +644,18 @@ body.theme-modern .session-item:hover {
 }
 
 /* Matrix theme LLM monitor */
-body.theme-matrix .llm-monitor {
+body.theme-matrix .llm-monitor-panel {
     background: rgba(0, 0, 0, 0.95);
-    border: 1px solid rgba(0, 255, 65, 0.3);
-    box-shadow: 0 0 20px rgba(0, 255, 65, 0.2);
+    border-left: 1px solid rgba(0, 255, 65, 0.3);
+}
+
+body.theme-matrix .panel-resizer {
+    background: rgba(0, 255, 65, 0.2);
+}
+
+body.theme-matrix .panel-resizer:hover,
+body.theme-matrix .panel-resizer.resizing {
+    background: rgba(0, 255, 65, 0.4);
 }
 
 body.theme-matrix .llm-monitor-header {
@@ -638,11 +692,18 @@ body.theme-matrix .llm-entry.parsed-response {
 }
 
 /* Modern theme LLM monitor */
-body.theme-modern .llm-monitor {
+body.theme-modern .llm-monitor-panel {
     background: rgba(30, 30, 46, 0.95);
-    border: 1px solid rgba(137, 180, 250, 0.3);
-    box-shadow: 0 0 20px rgba(137, 180, 250, 0.2);
-    backdrop-filter: blur(10px);
+    border-left: 1px solid rgba(137, 180, 250, 0.3);
+}
+
+body.theme-modern .panel-resizer {
+    background: rgba(137, 180, 250, 0.2);
+}
+
+body.theme-modern .panel-resizer:hover,
+body.theme-modern .panel-resizer.resizing {
+    background: rgba(137, 180, 250, 0.4);
 }
 
 body.theme-modern .llm-monitor-header {

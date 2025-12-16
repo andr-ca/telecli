@@ -124,31 +124,41 @@
             </div>
         </div>
 
-        <!-- LLM Monitor Subwindow -->
-        <div id="llm-monitor" class="llm-monitor" style="display: none;">
-            <div class="llm-monitor-header">
-                <h3>🔍 LLM Communication Monitor</h3>
-                <div class="llm-monitor-controls">
-                    <button onclick="exportLLMLog()" class="monitor-btn">💾 Export</button>
-                    <button onclick="clearLLMLog()" class="monitor-btn">🗑️ Clear</button>
-                    <button onclick="toggleLLMAutoScroll()" class="monitor-btn" id="autoscroll-btn">📜 Auto-scroll:
-                        ON</button>
-                    <button onclick="toggleLLMMonitor()" class="monitor-btn">✕</button>
-                </div>
+
+
+        <!-- Main Content Area with Resizable Panels -->
+        <div class="main-content" id="main-content">
+            <!-- Terminal Panel -->
+            <div class="terminal-panel" id="terminal-panel">
+                <div class="terminal" id="terminal-container"></div>
+                <footer>
+                    <div id="status">Connecting...</div>
+                    <div id="stats"></div>
+                </footer>
             </div>
-            <div class="llm-monitor-content" id="llm-monitor-content">
-                <div class="llm-monitor-placeholder">
-                    LLM communication will appear here when AI Proxy is active...
+
+            <!-- Resizer -->
+            <div class="panel-resizer" id="panel-resizer" style="display: none;"></div>
+
+            <!-- LLM Monitor Panel -->
+            <div class="llm-monitor-panel" id="llm-monitor-panel" style="display: none;">
+                <div class="llm-monitor-header">
+                    <h3>🔍 LLM Communication Monitor</h3>
+                    <div class="llm-monitor-controls">
+                        <button onclick="exportLLMLog()" class="monitor-btn">💾 Export</button>
+                        <button onclick="clearLLMLog()" class="monitor-btn">🗑️ Clear</button>
+                        <button onclick="toggleLLMAutoScroll()" class="monitor-btn" id="autoscroll-btn">📜 Auto-scroll:
+                            ON</button>
+                        <button onclick="toggleLLMMonitor()" class="monitor-btn">✕</button>
+                    </div>
+                </div>
+                <div class="llm-monitor-content" id="llm-monitor-content">
+                    <div class="llm-monitor-placeholder">
+                        LLM communication will appear here when AI Proxy is active...
+                    </div>
                 </div>
             </div>
         </div>
-
-        <div class="terminal" id="terminal-container"></div>
-
-        <footer>
-            <div id="status">Connecting...</div>
-            <div id="stats"></div>
-        </footer>
     </div>
 
     <script>
@@ -247,13 +257,112 @@
             }
         }
 
+        // Panel resizer functionality
+        function initializeResizer() {
+            const resizer = document.getElementById('panel-resizer');
+            const terminalPanel = document.getElementById('terminal-panel');
+            const monitorPanel = document.getElementById('llm-monitor-panel');
+            const mainContent = document.getElementById('main-content');
+
+            let isResizing = false;
+            let startX = 0;
+            let startTerminalWidth = 0;
+
+            resizer.addEventListener('mousedown', (e) => {
+                isResizing = true;
+                startX = e.clientX;
+                startTerminalWidth = terminalPanel.offsetWidth;
+
+                // Add visual feedback
+                resizer.classList.add('resizing');
+                document.body.style.cursor = 'col-resize';
+                document.body.style.userSelect = 'none';
+
+                e.preventDefault();
+            });
+
+            document.addEventListener('mousemove', (e) => {
+                if (!isResizing) return;
+
+                const deltaX = e.clientX - startX;
+                const mainWidth = mainContent.offsetWidth;
+                const newTerminalWidth = startTerminalWidth + deltaX;
+
+                // Set minimum and maximum widths (30% to 80% of total width)
+                const minWidth = mainWidth * 0.3;
+                const maxWidth = mainWidth * 0.8;
+
+                if (newTerminalWidth >= minWidth && newTerminalWidth <= maxWidth) {
+                    const terminalPercent = (newTerminalWidth / mainWidth) * 100;
+                    const monitorPercent = 100 - terminalPercent;
+
+                    terminalPanel.style.width = `${terminalPercent}%`;
+                    monitorPanel.style.width = `${monitorPercent}%`;
+
+                    // Trigger terminal resize
+                    if (term && fitAddon) {
+                        setTimeout(() => fitAddon.fit(), 10);
+                    }
+                }
+            });
+
+            document.addEventListener('mouseup', () => {
+                if (isResizing) {
+                    isResizing = false;
+                    resizer.classList.remove('resizing');
+                    document.body.style.cursor = '';
+                    document.body.style.userSelect = '';
+
+                    // Save the current split ratio to localStorage
+                    const terminalPercent = (terminalPanel.offsetWidth / mainContent.offsetWidth) * 100;
+                    localStorage.setItem('llm-monitor-split-ratio', terminalPercent.toString());
+                }
+            });
+
+            // Restore saved split ratio
+            const savedRatio = localStorage.getItem('llm-monitor-split-ratio');
+            if (savedRatio) {
+                const terminalPercent = parseFloat(savedRatio);
+                const monitorPercent = 100 - terminalPercent;
+                terminalPanel.style.width = `${terminalPercent}%`;
+                monitorPanel.style.width = `${monitorPercent}%`;
+            }
+        }
+
         function toggleLLMMonitor() {
-            const monitor = document.getElementById('llm-monitor');
+            const monitorPanel = document.getElementById('llm-monitor-panel');
+            const resizer = document.getElementById('panel-resizer');
             const btn = document.getElementById('llm-monitor-btn');
+            const mainContent = document.getElementById('main-content');
 
             llmMonitorVisible = !llmMonitorVisible;
-            monitor.style.display = llmMonitorVisible ? 'block' : 'none';
-            btn.textContent = llmMonitorVisible ? '🔍 Hide Monitor' : '🔍 LLM Monitor';
+
+            if (llmMonitorVisible) {
+                // Show monitor panel and resizer
+                monitorPanel.style.display = 'flex';
+                resizer.style.display = 'block';
+                mainContent.classList.add('split-view');
+                btn.textContent = '🔍 Hide Monitor';
+
+                // Initialize resizer if not already done
+                if (!window.resizerInitialized) {
+                    initializeResizer();
+                    window.resizerInitialized = true;
+                }
+            } else {
+                // Hide monitor panel and resizer
+                monitorPanel.style.display = 'none';
+                resizer.style.display = 'none';
+                mainContent.classList.remove('split-view');
+                btn.textContent = '🔍 LLM Monitor';
+            }
+
+            // Trigger terminal resize to fit new layout
+            if (term && fitAddon) {
+                setTimeout(() => {
+                    fitAddon.fit();
+                }, 100);
+            }
         }
 
         function clearLLMLog() {
