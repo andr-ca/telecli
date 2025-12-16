@@ -207,6 +207,28 @@
 
 
 
+        <!-- Duplicate Tab Blocker -->
+        <div id="duplicate-tab-blocker" class="modal-backdrop"
+            style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 2000; align-items: center; justify-content: center; background: rgba(0,0,0,0.9);">
+            <div class="modal-content" style="padding: 40px; max-width: 500px; width: 90%; text-align: center;">
+                <h2 style="margin-top: 0; color: #f38ba8;">⚠️ Session Active Elsewhere</h2>
+                <p style="font-size: 16px; line-height: 1.6; margin: 20px 0;">
+                    This terminal session is already open in another browser tab or window.
+                </p>
+                <p style="font-size: 14px; color: #7f8c8d; margin: 20px 0;">
+                    To use this tab, close the other tab first, or create a new session.
+                </p>
+                <div style="display: flex; gap: 15px; justify-content: center; margin-top: 30px; flex-wrap: wrap;">
+                    <button onclick="createNewSessionAndConnect()" class="modal-apply-btn" style="padding: 12px 24px;">
+                        🆕 New Session
+                    </button>
+                    <button onclick="retryConnection()" class="modal-cancel-btn" style="padding: 12px 24px;">
+                        🔄 Retry Connection
+                    </button>
+                </div>
+            </div>
+        </div>
+
         <!-- Main Content Area with Resizable Panels -->
         <div class="main-content" id="main-content">
             <!-- Terminal Panel -->
@@ -1232,9 +1254,10 @@
                         setTimeout(() => connectWebSocket(), 1000);
                     } else if (event.code === 4000) {
                         // Duplicate connection - another tab is already connected
-                        // Don't reconnect, just show status
-                        updateStatus('Another tab is connected', 'warning');
+                        // Block the app and show error
+                        updateStatus('Session active in another tab', 'error');
                         console.log('Duplicate connection rejected - another tab is already connected');
+                        showDuplicateTabBlocker();
                     } else if (event.code !== 1000) {
                         // Unexpected close - reconnect
                         updateStatus('Disconnected - Reconnecting...', 'warning');
@@ -1701,6 +1724,32 @@
                     })
                     .catch(e => console.error('Failed to reset'));
             }
+        }
+
+        function showDuplicateTabBlocker() {
+            document.getElementById('duplicate-tab-blocker').style.display = 'flex';
+            // Disable terminal interaction
+            if (term) {
+                term.blur();
+            }
+        }
+
+        function hideDuplicateTabBlocker() {
+            document.getElementById('duplicate-tab-blocker').style.display = 'none';
+        }
+
+        function createNewSessionAndConnect() {
+            // Generate new session ID and connect
+            const newSessionId = generateNewSessionId();
+            saveSessionId(newSessionId);
+            hideDuplicateTabBlocker();
+            if (term) term.clear();
+            connectWebSocket();
+        }
+
+        function retryConnection() {
+            hideDuplicateTabBlocker();
+            connectWebSocket();
         }
 
         function manualTerminalRefresh() {
