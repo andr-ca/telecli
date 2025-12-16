@@ -17,7 +17,9 @@
         <header>
             <div class="header-compact">
                 <div class="title-section">
-                    <h1>🖥️ TeleCLI</h1>
+                    <h1 id="logo" onclick="toggleTheme()"
+                        onkeydown="if(event.key==='Enter'||event.key===' ')toggleTheme()" tabindex="0"
+                        style="cursor: pointer;" title="Click to switch theme">🖥️ TeleCLI</h1>
                     <div class="status-inline">
                         <span id="status-compact">Connecting...</span>
                         <span id="session-compact"></span>
@@ -92,7 +94,6 @@
                     <button id="session-btn" onclick="openSessionPicker()">📋 Sessions</button>
                     <button id="reset-btn" onclick="resetSession()">🔁 Reset</button>
                     <button id="llm-monitor-btn" onclick="toggleLLMMonitor()">🔍 Monitor</button>
-                    <button id="theme-btn" onclick="toggleTheme()">🎨 Theme</button>
                     <button id="auth-btn" onclick="clearAuth()" style="display: none;">🔓 Auth</button>
                 </div>
             </div>
@@ -1352,9 +1353,15 @@
                 term.options.theme = getTerminalTheme();
             }
 
-            // Update button text
-            const themeBtn = document.getElementById('theme-btn');
-            themeBtn.textContent = currentTheme === 'matrix' ? '🎨 Modern Lite' : '🎨 Matrix';
+            // Update logo title to show current theme
+            const logo = document.getElementById('logo');
+            logo.title = `Click to switch theme (Current: ${currentTheme === 'matrix' ? 'Matrix' : 'Modern'})`;
+
+            // Brief visual feedback
+            logo.style.transform = 'scale(1.1)';
+            setTimeout(() => {
+                logo.style.transform = 'scale(1)';
+            }, 150);
         }
 
         // Clipboard submenu functions
@@ -1666,7 +1673,10 @@
 
         // Initialize theme and terminal
         document.body.className = `theme-${currentTheme}`;
-        document.getElementById('theme-btn').textContent = currentTheme === 'matrix' ? '🎨 Modern Lite' : '🎨 Matrix';
+
+        // Initialize logo tooltip
+        const logo = document.getElementById('logo');
+        logo.title = `Click to switch theme (Current: ${currentTheme === 'matrix' ? 'Matrix' : 'Modern'})`;
 
         // Save session ID if it's new
         if (!localStorage.getItem('terminal-session-id')) {

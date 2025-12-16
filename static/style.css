@@ -118,6 +118,13 @@ header {
     margin: 0;
     font-size: 1.3em;
     white-space: nowrap;
+    transition: transform 0.15s ease, opacity 0.15s ease;
+    user-select: none;
+}
+
+.title-section h1:hover {
+    opacity: 0.8;
+    transform: scale(1.05);
 }
 
 .status-inline {
@@ -1304,14 +1311,7 @@ body.theme-modern .submenu-divider {
         transform: translate(-50%, -50%);
     }
 
-    #theme-btn::before {
-        content: '🎨';
-        text-indent: 0;
-        position: absolute;
-        left: 50%;
-        top: 50%;
-        transform: translate(-50%, -50%);
-    }
+
 
     #auth-btn::before {
         content: '🔓';
