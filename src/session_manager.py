@@ -40,12 +40,12 @@ class SessionManager:
 
         return self.sessions[session_id]
 
-    async def send_input(self, session_id: str, text: str, newline: bool = True) -> None:
+    async def send_input(self, session_id: str, text: str, newline: bool = True, from_ai: bool = False) -> None:
         """Send input to a session"""
         session = await self.get_session(session_id)
-        logger.debug(f"SessionManager.send_input called with: text={repr(text[:100])}, newline={newline}")
+        logger.debug(f"SessionManager.send_input called with: text={repr(text[:100])}, newline={newline}, from_ai={from_ai}")
         await session.send_input(text, newline)
-        logger.debug(f"✓ Sent input to session {session_id}")
+        logger.debug(f"✓ Sent input to session {session_id} (from_ai={from_ai})")
 
     async def resize_session(self, session_id: str, rows: int, cols: int) -> None:
         """Resize a terminal session"""
@@ -100,10 +100,10 @@ class SessionManager:
             # Send character by character like user input, then carriage return
             for char in text:
                 logger.debug(f"Sending character: {repr(char)}")
-                await self.send_input(session_id, char, newline=False)
+                await self.send_input(session_id, char, newline=False, from_ai=True)
             # Send carriage return to submit
             logger.info(f"📤 Sending carriage return to submit")
-            await self.send_input(session_id, "\r", newline=False)
+            await self.send_input(session_id, "\r", newline=False, from_ai=True)
             logger.info(f"✓ Text '{text}' + CR sent to session {session_id}")
         
         ai_proxy.set_input_callback(send_input)

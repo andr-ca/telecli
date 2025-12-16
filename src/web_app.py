@@ -160,6 +160,7 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
 
     # Track connection state
     connection_active = True
+    logger.info(f"WebSocket connection_active initialized to True for {client_id}")
     
     # Set up LLM monitoring callback for this client
     async def llm_monitor_callback(entry_type: str, data: dict):
@@ -167,6 +168,7 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
         nonlocal connection_active
         
         if not connection_active:
+            logger.debug(f"LLM monitor callback skipped - connection_active=False for {client_id}")
             return  # Don't try to send if connection is closed
         
         try:
@@ -179,6 +181,7 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
         except Exception as e:
             logger.debug(f"Failed to send LLM monitor data: {e}")
             # Mark connection as inactive if send fails
+            logger.warning(f"Marking connection_active=False for {client_id} due to LLM monitor send failure")
             connection_active = False
     
     # Set the callback for this specific session's AI proxy (if it exists)
@@ -187,20 +190,39 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
         ai_proxy.set_monitor_callback(llm_monitor_callback)
     
     # Check if this is a reconnection to an existing session
-    # If reconnecting, send a subtle prompt refresh
+    # If reconnecting, send multiple refresh attempts to ensure terminal responsiveness
     session_existed = client_id in session_manager.sessions
     if session_existed:
         try:
             session = await session_manager.get_session(client_id)
-            # Send a space followed by a backspace to the terminal.
-            # This is a well-known terminal trick: it causes the shell to redraw the current line,
-            # including the prompt, without altering the user's input. The visible effect is a subtle
-            # refresh of the prompt and current line, which is useful after reconnecting to an existing session.
-            await asyncio.sleep(0.1)  # Small delay to ensure connection is ready
-            await session.send_input(" \b", newline=False)
-            logger.debug(f"Sent prompt refresh to existing session {client_id}")
+            logger.info(f"Reconnecting to existing session {client_id} - applying terminal refresh")
+            
+            # Wait a bit longer to ensure connection is fully established
+            await asyncio.sleep(0.2)
+            
+            # Try multiple refresh strategies for better reliability
+            try:
+                # Strategy 1: Space + backspace (gentle refresh)
+                await session.send_input(" \b", newline=False)
+                await asyncio.sleep(0.1)
+                
+                # Strategy 2: Send a newline to trigger prompt redraw
+                await session.send_input("", newline=True)
+                await asyncio.sleep(0.1)
+                
+                # Strategy 3: Send Ctrl+L (clear screen) as last resort if needed
+                # This is more aggressive but ensures terminal responsiveness
+                await session.send_input("\x0C", newline=False)
+                
+                logger.info(f"Successfully applied terminal refresh strategies to session {client_id}")
+                
+            except Exception as refresh_error:
+                logger.warning(f"Terminal refresh failed for session {client_id}: {refresh_error}")
+                # Even if refresh fails, continue with the connection
+                
         except Exception as e:
-            logger.debug(f"Could not refresh existing session {client_id}: {e}")
+            logger.warning(f"Could not refresh existing session {client_id}: {e}")
+            # Continue anyway - the session might still work
     else:
         logger.debug(f"New session {client_id} - no refresh needed")
 
@@ -211,15 +233,28 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
             while connection_active:
                 data = await websocket.receive_text()
                 logger.info(f"Received from client {client_id}: {data[:100]}")
+                logger.debug(f"Input handler processing message, connection_active={connection_active}")
                 
                 try:
                     message = json.loads(data)
                     input_text = message.get("input", "")
                     if input_text:
-                        # Send input immediately for best responsiveness
-                        await session_manager.send_input(client_id, input_text, newline=False)
+                        # Check if session is still active before sending input
+                        try:
+                            session = await session_manager.get_session(client_id)
+                            if not session.is_active:
+                                logger.warning(f"Session {client_id} is not active, cannot send input")
+                                await websocket.send_json({"error": "Session not active"})
+                                continue
+                        except Exception as session_error:
+                            logger.error(f"Error getting session {client_id}: {session_error}")
+                            await websocket.send_json({"error": "Session error"})
+                            continue
                         
-                        # Notify AI proxy after sending (non-blocking)
+                        # Send input immediately for best responsiveness (this is user input)
+                        await session_manager.send_input(client_id, input_text, newline=False, from_ai=False)
+                        
+                        # Notify AI proxy after sending (non-blocking) - only for user input
                         ai_proxy = session_manager.get_ai_proxy(client_id)
                         if ai_proxy and ai_proxy.is_enabled():
                             ai_proxy.notify_user_input(input_text)
@@ -267,9 +302,14 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
                             await websocket.send_json({"proxy_status": {"enabled": False}})
                 except json.JSONDecodeError as e:
                     logger.error(f"JSON decode error from client {client_id}: {e}")
+                    # Continue processing other messages despite JSON error
                 except Exception as e:
-                    logger.error(f"Error sending input for {client_id}: {e}")
-                    break
+                    logger.error(f"Error processing message for {client_id}: {e}")
+                    # Log the error but continue processing other messages
+                    # Only break if it's a critical connection error
+                    if "connection" in str(e).lower() or "websocket" in str(e).lower():
+                        logger.error(f"Critical connection error, stopping input handler: {e}")
+                        break
         except WebSocketDisconnect as e:
             # Normal disconnect codes: 1000 (normal), 1001 (going away), 1012 (service restart)
             if e.code in [1000, 1001, 1012]:

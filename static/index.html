@@ -176,6 +176,11 @@
         let llmAutoScroll = true;
         let llmEntryCounter = 0;
 
+        // Stale state detection
+        let lastOutputTime = Date.now();
+        let staleStateCheckInterval = null;
+        let terminalRefreshAttempts = 0;
+
         function generateNewSessionId() {
             return 'web-' + crypto.getRandomValues(new Uint8Array(16))
                 .reduce((hex, byte) => hex + byte.toString(16).padStart(2, '0'), '');
@@ -255,6 +260,132 @@
                 window.authTokenResolve(null);
                 delete window.authTokenResolve;
             }
+        }
+
+        // Stale state detection and recovery
+        function startStaleStateMonitoring() {
+            // Clear any existing interval
+            if (staleStateCheckInterval) {
+                clearInterval(staleStateCheckInterval);
+            }
+
+            // Reset monitoring state
+            lastOutputTime = Date.now();
+            terminalRefreshAttempts = 0;
+
+            // Check for stale state every 5 seconds for more responsive detection
+            staleStateCheckInterval = setInterval(() => {
+                const timeSinceLastOutput = Date.now() - lastOutputTime;
+
+                // Update status to show potential stale state
+                if (timeSinceLastOutput > 15000 && isConnected && terminalRefreshAttempts === 0) {
+                    updateStatus('Connected (checking responsiveness...)', 'warning');
+                }
+
+                // If no output for 20 seconds and we're connected, try to refresh
+                if (timeSinceLastOutput > 20000 && isConnected && terminalRefreshAttempts < 3) {
+                    console.log(`Detecting potential stale terminal state (${Math.round(timeSinceLastOutput / 1000)}s since last output), attempting refresh...`);
+                    updateStatus(`Connected (refreshing terminal... ${terminalRefreshAttempts + 1}/3)`, 'warning');
+                    attemptTerminalRefresh();
+                }
+
+                // If still no output after 60 seconds and max attempts reached, force reconnection
+                if (timeSinceLastOutput > 60000 && isConnected && terminalRefreshAttempts >= 3) {
+                    console.log('Terminal appears completely stale, forcing reconnection...');
+                    updateStatus('Reconnecting (terminal unresponsive)', 'error');
+                    forceReconnection();
+                }
+
+                // Reset status to normal if terminal is responsive
+                if (timeSinceLastOutput < 10000 && isConnected && terminalRefreshAttempts === 0) {
+                    updateStatus('Connected', 'success');
+                }
+            }, 5000);
+        }
+
+        function stopStaleStateMonitoring() {
+            if (staleStateCheckInterval) {
+                clearInterval(staleStateCheckInterval);
+                staleStateCheckInterval = null;
+            }
+        }
+
+        function attemptTerminalRefresh() {
+            if (!ws || !isConnected) return;
+
+            terminalRefreshAttempts++;
+            console.log(`Terminal refresh attempt ${terminalRefreshAttempts}/3`);
+
+            try {
+                // Progressive refresh strategies - start gentle, get more aggressive
+                if (terminalRefreshAttempts === 1) {
+                    // Strategy 1: Gentle refresh with space + backspace
+                    ws.send(JSON.stringify({ input: ' \b' }));
+                    console.log('Applied gentle refresh (space + backspace)');
+                } else if (terminalRefreshAttempts === 2) {
+                    // Strategy 2: Send newline to trigger prompt redraw
+                    ws.send(JSON.stringify({ input: '\n' }));
+                    console.log('Applied newline refresh');
+                } else if (terminalRefreshAttempts === 3) {
+                    // Strategy 3: Clear screen (Ctrl+L) as last resort
+                    ws.send(JSON.stringify({ input: '\x0C' }));
+                    console.log('Applied clear screen refresh (Ctrl+L)');
+                }
+
+                // Check if refresh worked after a delay
+                setTimeout(() => {
+                    const recentOutput = Date.now() - lastOutputTime;
+                    if (recentOutput < 3000) {
+                        terminalRefreshAttempts = 0;
+                        console.log('Terminal refresh successful - terminal is responsive again');
+                    }
+                }, 2000);
+
+            } catch (e) {
+                console.error('Failed to send terminal refresh:', e);
+            }
+        }
+
+        function forceReconnection() {
+            console.log('Forcing WebSocket reconnection due to persistent stale state...');
+
+            // Stop monitoring during reconnection
+            stopStaleStateMonitoring();
+
+            // Close current connection
+            if (ws) {
+                ws.close();
+            }
+
+            // Clear terminal and show reconnection message
+            if (term) {
+                term.write('\r\n\x1b[33m[Terminal appears stale - reconnecting...]\x1b[0m\r\n');
+            }
+
+            // Reconnect after a brief delay
+            setTimeout(async () => {
+                await connectWebSocket();
+            }, 1000);
+        }
+
+        function updateLastOutputTime() {
+            const previousTime = lastOutputTime;
+            lastOutputTime = Date.now();
+
+            // If we were in a stale state and now got output, log recovery
+            if (terminalRefreshAttempts > 0) {
+                const staleDuration = Math.round((lastOutputTime - previousTime) / 1000);
+                console.log(`Terminal recovered from stale state after ${staleDuration}s (${terminalRefreshAttempts} refresh attempts)`);
+
+                // Show brief recovery message to user
+                if (term && staleDuration > 10) {
+                    setTimeout(() => {
+                        term.write('\r\n\x1b[32m[Terminal connection restored]\x1b[0m\r\n');
+                    }, 100);
+                }
+            }
+
+            terminalRefreshAttempts = 0; // Reset attempts when we get output
         }
 
         // Panel resizer functionality
@@ -776,6 +907,14 @@
                 if (isConnected && ws && ws.readyState === WebSocket.OPEN) {
                     // Always use JSON.stringify to properly escape all characters
                     ws.send(JSON.stringify({ input: data }));
+
+                    // Reset stale state monitoring when user types (but don't update output time)
+                    terminalRefreshAttempts = 0;
+
+                    // Update status to show terminal is active
+                    if (isConnected) {
+                        updateStatus('Connected', 'success');
+                    }
                 }
             });
 
@@ -840,12 +979,19 @@
                 ws.onopen = () => {
                     isConnected = true;
                     updateStatus('Connected', 'success');
+
+                    // Start stale state monitoring when connection is established
+                    startStaleStateMonitoring();
+                    console.log('Started stale state monitoring for connection');
                 };
 
                 ws.onmessage = (event) => {
                     try {
                         const data = JSON.parse(event.data);
                         if (data.output && term) {
+                            // Update last output time for stale state detection
+                            updateLastOutputTime();
+
                             // Write output immediately without scroll position checks for better performance
                             term.write(data.output);
 
@@ -873,10 +1019,18 @@
 
                 ws.onerror = (error) => {
                     updateStatus('Error', 'error');
+
+                    // Stop stale state monitoring on error
+                    stopStaleStateMonitoring();
+                    console.log('Stopped stale state monitoring due to WebSocket error');
                 };
 
                 ws.onclose = (event) => {
                     isConnected = false;
+
+                    // Stop stale state monitoring when connection is closed
+                    stopStaleStateMonitoring();
+                    console.log('Stopped stale state monitoring due to connection close');
 
                     // Check if it's an authentication error
                     if (event.code === 1008) {
