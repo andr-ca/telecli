@@ -25,11 +25,11 @@ class AIProxy:
         max_iterations: int = 10,
         buffer_size: int = 1000,
         context_lines: int = 500,
-        fallback_providers: Optional[list[str]] = None
+        fallback_provider_names: Optional[list[str]] = None
     ):
         self.llm_provider = llm_provider
         self.primary_provider_name = llm_provider.get_name()
-        self.fallback_provider_names = fallback_providers or []  # List of fallback provider names to try on 429
+        self.fallback_provider_names = fallback_provider_names or []  # List of fallback provider names to try on 429
         self.system_prompt = system_prompt or "You are helping automate terminal interactions. Provide brief, direct responses."
         self.max_iterations = max_iterations
         self.enabled = False
