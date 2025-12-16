@@ -80,8 +80,10 @@ class SessionManager:
     async def get_output_stream(self, session_id: str, client_ip: Optional[str] = None):
         """Get output stream from a session"""
         session = await self.get_session(session_id, client_ip)
+        logger.debug(f"SessionManager: Starting output stream for {session_id}")
         async for chunk in session.get_output_stream():
             yield chunk
+        logger.debug(f"SessionManager: Output stream ended for {session_id}")
 
     async def enable_ai_proxy(
         self, 

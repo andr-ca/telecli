@@ -96,6 +96,17 @@ class TerminalSession:
         my_consumer_id = self._consumer_id
         logger.info(f"Starting output stream for session {self.session_id} (consumer {my_consumer_id})")
         
+        # Clear any pending items in the queue to prevent duplication
+        # This ensures we start fresh and don't replay old output
+        queue_size = self.output_queue.qsize()
+        if queue_size > 0:
+            logger.debug(f"Clearing {queue_size} pending items from output queue for new consumer")
+            while not self.output_queue.empty():
+                try:
+                    self.output_queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+        
         try:
             while self.is_active and my_consumer_id == self._consumer_id:
                 try:
@@ -108,9 +119,8 @@ class TerminalSession:
                     if my_consumer_id == self._consumer_id:
                         yield chunk
                     else:
-                        # Put the chunk back for the new consumer
-                        await self.output_queue.put(chunk)
-                        logger.debug(f"Consumer {my_consumer_id} superseded, returning chunk to queue")
+                        # Don't put chunk back - let it be discarded to prevent duplication
+                        logger.debug(f"Consumer {my_consumer_id} superseded, discarding chunk")
                         break
                 except asyncio.TimeoutError:
                     # No data available, continue loop to check conditions
