@@ -356,43 +356,14 @@
             }
         }
 
-        // Connection health monitoring (not stale state - idle terminals are normal!)
+        // Connection health is now handled by WebSocket's built-in state
+        // No need for separate monitoring - trust ws.readyState and onclose handler
         function startStaleStateMonitoring() {
-            // Clear any existing interval
-            if (staleStateCheckInterval) {
-                clearInterval(staleStateCheckInterval);
-            }
-
-            // Reset monitoring state
-            lastOutputTime = Date.now();
-            terminalRefreshAttempts = 0;
-            recoveryMessageShown = false;
-
-            // Monitor WebSocket connection health, not terminal output
-            // Idle terminals are NORMAL - don't assume no output = broken connection
-            staleStateCheckInterval = setInterval(() => {
-                // Only check actual WebSocket connection state
-                if (ws && ws.readyState === WebSocket.OPEN && isConnected) {
-                    // Connection is healthy - nothing to do
-                    // Don't trigger refresh just because terminal is idle!
-                    return;
-                }
-
-                // If WebSocket is not open but we think we're connected, there's a real problem
-                if (isConnected && (!ws || ws.readyState !== WebSocket.OPEN)) {
-                    console.log('WebSocket connection lost, attempting reconnection...');
-                    updateStatus('Connection lost - reconnecting...', 'warning');
-                    isConnected = false;
-                    forceReconnection();
-                }
-            }, 10000); // Check every 10 seconds
+            // Deprecated - WebSocket handles its own state
         }
 
         function stopStaleStateMonitoring() {
-            if (staleStateCheckInterval) {
-                clearInterval(staleStateCheckInterval);
-                staleStateCheckInterval = null;
-            }
+            // Deprecated - WebSocket handles its own state
         }
 
         function attemptTerminalRefresh() {
@@ -422,25 +393,18 @@
         }
 
         function forceReconnection() {
-            console.log('Forcing WebSocket reconnection due to persistent stale state...');
+            console.log('Force reconnection requested');
 
-            // Stop monitoring during reconnection
-            stopStaleStateMonitoring();
-
-            // Close current connection
+            // Close current connection if exists
             if (ws) {
+                ws.onclose = null; // Prevent auto-reconnect
                 ws.close();
+                ws = null;
             }
-
-            // Clear terminal and show reconnection message
-            if (term) {
-                term.write('\r\n\x1b[33m[Terminal appears stale - reconnecting...]\x1b[0m\r\n');
-            }
+            isConnected = false;
 
             // Reconnect after a brief delay
-            setTimeout(async () => {
-                await connectWebSocket();
-            }, 1000);
+            setTimeout(() => connectWebSocket(), 500);
         }
 
         function updateLastOutputTime() {
@@ -1189,64 +1153,59 @@
         }
 
         async function connectWebSocket() {
+            // Don't create new connection if already connected
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                console.log('WebSocket already connected, skipping');
+                return;
+            }
+
+            // Don't create new connection if one is connecting
+            if (ws && ws.readyState === WebSocket.CONNECTING) {
+                console.log('WebSocket already connecting, skipping');
+                return;
+            }
+
             try {
-                // Close any existing connection before creating a new one
+                // Close any existing connection cleanly
                 if (ws) {
-                    console.log('Closing existing WebSocket connection before reconnecting');
+                    console.log('Closing existing WebSocket connection');
+                    ws.onclose = null; // Prevent reconnection loop
+                    ws.onerror = null;
                     ws.close();
                     ws = null;
                 }
 
                 const wsUrl = await getWebSocketUrl();
+                console.log('Creating new WebSocket connection');
                 ws = new WebSocket(wsUrl);
 
                 ws.onopen = () => {
                     isConnected = true;
                     updateStatus('Connected', 'success');
+                    console.log('WebSocket connected');
 
                     // Fit terminal and send size after connection
-                    // Use setTimeout to ensure DOM is fully ready
                     if (fitAddon) {
                         fitAddon.fit();
-                        // Small delay to ensure fit calculation is complete
                         setTimeout(() => {
-                            fitAddon.fit(); // Second fit for accuracy
+                            fitAddon.fit();
                             sendTerminalSize();
-                            console.log(`Sent terminal size after connection: ${term.rows}x${term.cols}`);
                         }, 100);
                     } else {
                         sendTerminalSize();
-                        console.log('Sent terminal size (no fitAddon)');
                     }
-
-                    // Start stale state monitoring when connection is established
-                    startStaleStateMonitoring();
-                    console.log('Started stale state monitoring for connection');
                 };
 
                 ws.onmessage = (event) => {
                     try {
                         const data = JSON.parse(event.data);
                         if (data.output && term) {
-                            // Update last output time for stale state detection
-                            updateLastOutputTime();
-
-                            // Write output immediately without scroll position checks for better performance
                             term.write(data.output);
-
-                            // Only check scroll position for larger chunks to reduce overhead
-                            if (data.output.length > 100) {
-                                const wasAtBottom = term.buffer.active.baseY + term.rows >= term.buffer.active.length;
-                                if (wasAtBottom) {
-                                    term.scrollToBottom();
-                                }
-                            }
                         } else if (data.error) {
                             term.write('\r\n\x1b[31mError: ' + data.error + '\x1b[0m\r\n');
                         } else if (data.proxy_status) {
                             updateProxyStatus(data.proxy_status);
                         } else if (data.llm_monitor) {
-                            // Handle LLM monitoring data
                             if (llmMonitorVisible) {
                                 addLLMEntry(data.llm_monitor.type, data.llm_monitor.data);
                             }
@@ -1257,32 +1216,31 @@
                 };
 
                 ws.onerror = (error) => {
-                    updateStatus('Error', 'error');
-
-                    // Stop stale state monitoring on error
-                    stopStaleStateMonitoring();
-                    console.log('Stopped stale state monitoring due to WebSocket error');
+                    console.error('WebSocket error:', error);
+                    updateStatus('Connection error', 'error');
                 };
 
                 ws.onclose = (event) => {
                     isConnected = false;
+                    console.log(`WebSocket closed: code=${event.code}, reason=${event.reason}`);
 
-                    // Stop stale state monitoring when connection is closed
-                    stopStaleStateMonitoring();
-                    console.log('Stopped stale state monitoring due to connection close');
-
-                    // Check if it's an authentication error
+                    // Only reconnect if not intentionally closed (code 1000 = normal close)
                     if (event.code === 1008) {
+                        // Authentication error
                         updateStatus('Authentication failed', 'error');
-                        // Clear stored token and ask for new one
                         localStorage.removeItem('terminal-auth-token');
-                        setTimeout(async () => await connectWebSocket(), 1000);
-                    } else {
+                        setTimeout(() => connectWebSocket(), 1000);
+                    } else if (event.code !== 1000) {
+                        // Unexpected close - reconnect
                         updateStatus('Disconnected - Reconnecting...', 'warning');
-                        setTimeout(async () => await connectWebSocket(), 3000);
+                        setTimeout(() => connectWebSocket(), 3000);
+                    } else {
+                        // Normal close - don't reconnect
+                        updateStatus('Disconnected', 'warning');
                     }
                 };
             } catch (e) {
+                console.error('Connection failed:', e);
                 updateStatus('Connection failed', 'error');
             }
         }

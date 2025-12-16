@@ -42,11 +42,11 @@ class SessionManager:
         self.session_count = 0
         self.ai_proxies: dict[str, AIProxy] = {}  # AI proxy per session
         self.monitor_callback = None  # Callback for LLM monitoring
-        self.disconnected_sessions: dict[str, datetime] = {}  # Track disconnected sessions
+        # Simplified connection tracking - just track if session has active connection
+        self.active_websocket: dict[str, any] = {}  # Single WebSocket per session
+        # Session persistence tracking (for browser refresh reconnection)
+        self.disconnected_sessions: dict[str, datetime] = {}  # Track when sessions disconnected
         self.cleanup_tasks: dict[str, asyncio.Task] = {}  # Pending cleanup tasks
-        self.active_connections: dict[str, int] = {}  # Track active WebSocket connections per session
-        self.latest_connection_time: dict[str, datetime] = {}  # Track latest connection time per session
-        self.active_websockets: dict[str, list] = {}  # Track actual WebSocket objects per session
 
     async def get_session(self, session_id: str, client_ip: Optional[str] = None) -> TerminalSession:
         """Get or create a session for the given ID"""
@@ -89,107 +89,31 @@ class SessionManager:
             await self.sessions[session_id].resize(rows, cols)
             logger.debug(f"Resized session {session_id} to {rows}x{cols}")
 
-    async def register_connection(self, session_id: str, websocket=None) -> int:
-        """Register a new WebSocket connection for a session"""
-        if session_id not in self.active_connections:
-            self.active_connections[session_id] = 0
-            self.active_websockets[session_id] = []
+    def register_connection(self, session_id: str, websocket=None) -> None:
+        """Register a WebSocket connection for a session (simple - one connection per session)"""
+        # Close any existing connection for this session
+        if session_id in self.active_websocket and self.active_websocket[session_id]:
+            old_ws = self.active_websocket[session_id]
+            logger.info(f"Replacing existing connection for {session_id}")
+            try:
+                asyncio.create_task(old_ws.close(code=1000, reason="Replaced by new connection"))
+            except Exception as e:
+                logger.debug(f"Error closing old connection: {e}")
         
-        # CRITICAL FIX: Close old connections immediately when ANY exist
-        if len(self.active_websockets[session_id]) >= 1:
-            logger.warning(f"🔧 CLOSING {len(self.active_websockets[session_id])} old connections for {session_id}")
-            # Close all existing connections immediately and wait for them to close
-            close_tasks = []
-            for old_ws in self.active_websockets[session_id]:
-                try:
-                    # Close immediately - the duplication is worse than brief connection interruption
-                    task = asyncio.create_task(old_ws.close(code=1000, reason="Superseded by new connection"))
-                    close_tasks.append(task)
-                    logger.info(f"✅ Initiated close for old connection for {session_id}")
-                except Exception as e:
-                    logger.debug(f"Error closing old connection: {e}")
-            
-            # Wait for all close operations to complete (with timeout)
-            if close_tasks:
-                try:
-                    await asyncio.wait_for(asyncio.gather(*close_tasks, return_exceptions=True), timeout=1.0)
-                    logger.info(f"✅ All old connections closed for {session_id}")
-                except asyncio.TimeoutError:
-                    logger.warning(f"⚠️ Timeout waiting for old connections to close for {session_id}")
-            
-            # Clear the list for the new connection
-            self.active_websockets[session_id] = []
-            self.active_connections[session_id] = 0
-        
-        # Add the new connection
-        if websocket:
-            self.active_websockets[session_id].append(websocket)
-        self.active_connections[session_id] += 1
-        connection_count = self.active_connections[session_id]
-        
-        # Log error if we still have multiple connections after cleanup
-        if connection_count > 1:
-            logger.error(f"🚨 MULTIPLE CONNECTIONS ({connection_count}) for session {session_id} - WILL CAUSE DUPLICATION!")
-            logger.error(f"🚨 This is the root cause of terminal output duplication!")
-        else:
-            logger.info(f"Registered connection for {session_id}, total connections: {connection_count}")
-        
-        return connection_count
-
-    def should_close_old_connections(self, session_id: str) -> bool:
-        """Check if old connections should be closed for this session"""
-        connection_count = self.active_connections.get(session_id, 0)
-        return connection_count > 1
-
-    def mark_latest_connection(self, session_id: str) -> datetime:
-        """Mark the latest connection time for a session"""
-        connection_time = datetime.now()
-        self.latest_connection_time[session_id] = connection_time
-        logger.info(f"Marked latest connection time for {session_id}: {connection_time}")
-        return connection_time
-
-    def is_connection_outdated(self, session_id: str, connection_time: datetime) -> bool:
-        """Check if a connection is outdated (newer connection exists)"""
-        latest_time = self.latest_connection_time.get(session_id)
-        if latest_time and connection_time < latest_time:
-            # Reduce grace period to prevent duplication spam
-            time_diff = (latest_time - connection_time).total_seconds()
-            if time_diff > 0.5:  # Only consider outdated if more than 0.5 second old
-                logger.info(f"Connection for {session_id} is outdated: {connection_time} < {latest_time} (diff: {time_diff:.1f}s)")
-                return True
-            else:
-                logger.debug(f"Connection for {session_id} is newer but within grace period: {time_diff:.1f}s")
-        return False
+        # Store the new connection
+        self.active_websocket[session_id] = websocket
+        logger.info(f"Registered connection for {session_id}")
 
     def unregister_connection(self, session_id: str, websocket=None):
         """Unregister a WebSocket connection for a session"""
-        if session_id in self.active_connections:
-            # Remove from websocket list if provided
-            if websocket and session_id in self.active_websockets:
-                try:
-                    self.active_websockets[session_id].remove(websocket)
-                except ValueError:
-                    pass  # WebSocket not in list
-            
-            self.active_connections[session_id] -= 1
-            connection_count = self.active_connections[session_id]
-            logger.info(f"Unregistered connection for {session_id}, remaining connections: {connection_count}")
-            if self.active_connections[session_id] <= 0:
-                del self.active_connections[session_id]
-                # Also clean up connection time tracking when no connections remain
-                if session_id in self.latest_connection_time:
-                    del self.latest_connection_time[session_id]
-                if session_id in self.active_websockets:
-                    del self.active_websockets[session_id]
-                logger.info(f"No more connections for {session_id}, cleaned up tracking")
+        if session_id in self.active_websocket:
+            # Only unregister if it's the same websocket (or no websocket specified)
+            if websocket is None or self.active_websocket[session_id] == websocket:
+                del self.active_websocket[session_id]
+                logger.info(f"Unregistered connection for {session_id}")
 
     async def get_output_stream(self, session_id: str, client_ip: Optional[str] = None):
         """Get output stream from a session"""
-        # Check for multiple connections
-        connection_count = self.active_connections.get(session_id, 0)
-        if connection_count > 1:
-            logger.warning(f"Multiple connections ({connection_count}) detected for session {session_id} - this may cause duplication!")
-        
         session = await self.get_session(session_id, client_ip)
         logger.debug(f"SessionManager: Starting output stream for {session_id}")
         async for chunk in session.get_output_stream():

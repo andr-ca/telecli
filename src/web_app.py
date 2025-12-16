@@ -331,14 +331,10 @@ async def websocket_implementation(websocket: WebSocket, client_id: str):
     
     # Track connection state
     connection_active = True
-    logger.info(f"WebSocket connection_active initialized to True for {client_id}")
     
-    # Register this connection and automatically close old ones
-    connection_count = await session_manager.register_connection(client_id, websocket)
-    logger.info(f"WebSocket connection established for client {client_id} from IP {client_ip} (connection #{connection_count})")
-    
-    # Mark connection time for tracking (used by connection management)
-    session_manager.mark_latest_connection(client_id)
+    # Register this connection (simple - one connection per session)
+    session_manager.register_connection(client_id, websocket)
+    logger.info(f"WebSocket connected for {client_id} from IP {client_ip}")
     
     # Set up LLM monitoring callback for this client
     async def llm_monitor_callback(entry_type: str, data: dict):
