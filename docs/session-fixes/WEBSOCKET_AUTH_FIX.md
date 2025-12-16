@@ -37,7 +37,17 @@ const response = await fetch(`${basePath}/api/auth/required`);
 
 ## 🔧 Solution Implemented
 
-### 1. Fixed WebSocket URL Generation
+### 1. Fixed CSS Loading
+```javascript
+// Set CSS path dynamically based on current location
+(function() {
+    const basePath = window.location.pathname.replace(/\/$/, '');
+    const cssPath = basePath ? `${basePath}/style.css` : 'style.css';
+    document.getElementById('main-stylesheet').href = cssPath;
+})();
+```
+
+### 2. Fixed WebSocket URL Generation
 ```javascript
 async function getWebSocketUrl() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -51,7 +61,7 @@ async function getWebSocketUrl() {
 }
 ```
 
-### 2. Fixed All API Calls
+### 3. Fixed All API Calls
 
 Updated all fetch calls to use dynamic base path:
 
@@ -118,8 +128,9 @@ ws.onerror = (e) => console.error('Error:', e);
 
 ## 🎯 Files Modified
 
-- `static/index.html`: Fixed all API calls to use dynamic base path
-- `test_websocket_auth.py`: Created test script for validation
+- `static/index.html`: Fixed CSS loading and all API calls to use dynamic base path
+- `test_websocket_auth.py`: Created test script for WebSocket validation
+- `test_css_loading.py`: Created test script for CSS loading validation
 
 ## 🚀 Next Steps
 

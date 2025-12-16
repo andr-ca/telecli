@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TeleCLI - Terminal</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="" id="main-stylesheet">
     <!-- xterm.js for full terminal emulation -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css" />
     <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
@@ -232,6 +232,14 @@
     </div>
 
     <script>
+        // Set CSS path dynamically based on current location
+        (function () {
+            const basePath = window.location.pathname.replace(/\/$/, '');
+            const cssPath = basePath ? `${basePath}/style.css` : 'style.css';
+            document.getElementById('main-stylesheet').href = cssPath;
+            console.log('CSS path set to:', cssPath);
+        })();
+
         let clientId = localStorage.getItem('terminal-session-id') || generateNewSessionId();
         let ws = null;
         let isConnected = false;
