@@ -836,13 +836,34 @@
             URL.revokeObjectURL(url);
         }
 
+        let sessionPickerRefreshInterval = null;
+
         async function openSessionPicker() {
             document.getElementById('session-picker-modal').style.display = 'flex';
             await refreshSessions();
+
+            // Start periodic refresh while modal is open
+            if (sessionPickerRefreshInterval) {
+                clearInterval(sessionPickerRefreshInterval);
+            }
+            sessionPickerRefreshInterval = setInterval(async () => {
+                if (document.getElementById('session-picker-modal').style.display === 'flex') {
+                    await refreshSessions();
+                } else {
+                    clearInterval(sessionPickerRefreshInterval);
+                    sessionPickerRefreshInterval = null;
+                }
+            }, 2000); // Refresh every 2 seconds
         }
 
         function closeSessionPicker() {
             document.getElementById('session-picker-modal').style.display = 'none';
+
+            // Stop periodic refresh
+            if (sessionPickerRefreshInterval) {
+                clearInterval(sessionPickerRefreshInterval);
+                sessionPickerRefreshInterval = null;
+            }
         }
 
         async function refreshSessions() {
@@ -905,10 +926,21 @@
             }
         }
 
-        function selectSession(sessionId) {
+        async function selectSession(sessionId) {
             if (sessionId === clientId) {
                 closeSessionPicker();
                 return;
+            }
+
+            // Check if this session already exists
+            let sessionExists = false;
+            try {
+                const basePath = window.location.pathname.replace(/\/$/, '');
+                const response = await fetch(`${basePath}/api/sessions`);
+                const data = await response.json();
+                sessionExists = data.sessions.some(s => s.id === sessionId);
+            } catch (e) {
+                console.error('Failed to check session existence:', e);
             }
 
             // Disconnect current session
@@ -919,13 +951,20 @@
             // Switch to selected session
             saveSessionId(sessionId);
 
-            // Clear terminal and reconnect
+            // Clear terminal and show switching message
             if (term) {
                 term.clear();
+                if (sessionExists) {
+                    term.write('\r\n\x1b[33m[Switching to existing session...]\x1b[0m\r\n');
+                } else {
+                    term.write('\r\n\x1b[32m[Starting new session...]\x1b[0m\r\n');
+                }
             }
 
             setTimeout(async () => {
                 await connectWebSocket();
+                // Refresh session list to show updated active session
+                await refreshSessions();
                 closeSessionPicker();
             }, 100);
         }
