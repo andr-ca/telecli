@@ -358,8 +358,8 @@
                     updateStatus('Connected (checking responsiveness...)', 'warning');
                 }
 
-                // If no output for 20 seconds and we're connected, try to refresh
-                if (timeSinceLastOutput > 20000 && isConnected && terminalRefreshAttempts < 3) {
+                // If no output for 15 seconds and we're connected, try to refresh (reduced from 20s)
+                if (timeSinceLastOutput > 15000 && isConnected && terminalRefreshAttempts < 3) {
                     console.log(`Detecting potential stale terminal state (${Math.round(timeSinceLastOutput / 1000)}s since last output), attempting refresh...`);
                     updateStatus(`Connected (refreshing terminal... ${terminalRefreshAttempts + 1}/3)`, 'warning');
                     // Reset recovery message flag when starting a new stale state episode
@@ -369,8 +369,8 @@
                     attemptTerminalRefresh();
                 }
 
-                // If still no output after 60 seconds and max attempts reached, force reconnection
-                if (timeSinceLastOutput > 60000 && isConnected && terminalRefreshAttempts >= 3) {
+                // If still no output after 35 seconds and max attempts reached, force reconnection
+                if (timeSinceLastOutput > 35000 && isConnected && terminalRefreshAttempts >= 3) {
                     console.log('Terminal appears completely stale, forcing reconnection...');
                     updateStatus('Reconnecting (terminal unresponsive)', 'error');
                     forceReconnection();
@@ -403,23 +403,37 @@
                     ws.send(JSON.stringify({ input: ' \b' }));
                     console.log('Applied gentle refresh (space + backspace)');
                 } else if (terminalRefreshAttempts === 2) {
-                    // Strategy 2: Send newline to trigger prompt redraw
-                    ws.send(JSON.stringify({ input: '\n' }));
-                    console.log('Applied newline refresh');
+                    // Strategy 2: Send Enter to trigger prompt redraw
+                    ws.send(JSON.stringify({ input: '\r' }));
+                    console.log('Applied Enter refresh');
                 } else if (terminalRefreshAttempts === 3) {
-                    // Strategy 3: Clear screen (Ctrl+L) as last resort
-                    ws.send(JSON.stringify({ input: '\x0C' }));
-                    console.log('Applied clear screen refresh (Ctrl+L)');
+                    // Strategy 3: Multiple aggressive commands
+                    ws.send(JSON.stringify({ input: '\x03' })); // Ctrl+C
+                    setTimeout(() => {
+                        if (ws && isConnected) {
+                            ws.send(JSON.stringify({ input: '\x0C' })); // Ctrl+L
+                        }
+                    }, 100);
+                    setTimeout(() => {
+                        if (ws && isConnected) {
+                            ws.send(JSON.stringify({ input: '\r' })); // Enter
+                        }
+                    }, 200);
+                    console.log('Applied aggressive refresh (Ctrl+C, Ctrl+L, Enter)');
                 }
 
-                // Check if refresh worked after a delay
+                // Check if refresh worked after a shorter delay
                 setTimeout(() => {
                     const recentOutput = Date.now() - lastOutputTime;
-                    if (recentOutput < 3000) {
+                    if (recentOutput < 2000) {
                         terminalRefreshAttempts = 0;
+                        updateStatus('Connected', 'success');
                         console.log('Terminal refresh successful - terminal is responsive again');
+                    } else if (terminalRefreshAttempts >= 3) {
+                        // If all attempts failed, prepare for forced reconnection
+                        console.log('All refresh attempts failed, will force reconnection soon...');
                     }
-                }, 2000);
+                }, 1500);
 
             } catch (e) {
                 console.error('Failed to send terminal refresh:', e);
@@ -866,7 +880,8 @@
 
         async function refreshSessions() {
             try {
-                const response = await fetch('/api/sessions');
+                const basePath = window.location.pathname.replace(/\/$/, '');
+                const response = await fetch(`${basePath}/api/sessions`);
                 const data = await response.json();
                 const sessionsList = document.getElementById('sessions-list');
 
@@ -951,7 +966,8 @@
             }
 
             try {
-                await fetch(`/reset/${sessionId}`, { method: 'POST' });
+                const basePath = window.location.pathname.replace(/\/$/, '');
+                await fetch(`${basePath}/reset/${sessionId}`, { method: 'POST' });
 
                 // If we deleted our current session, create a new one
                 if (sessionId === clientId) {
@@ -1095,11 +1111,15 @@
 
         async function getWebSocketUrl() {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const url = `${protocol}//${window.location.host}/ws/${clientId}`;
+            const basePath = window.location.pathname.replace(/\/$/, ''); // Remove trailing slash
+            const url = `${protocol}//${window.location.host}${basePath}/ws/${clientId}`;
+            console.log('WebSocket URL:', url); // Debug logging
 
             // Check if authentication is required
             try {
-                const response = await fetch('/api/auth/required');
+                const authApiUrl = `${basePath}/api/auth/required`;
+                console.log('Auth API URL:', authApiUrl); // Debug logging
+                const response = await fetch(authApiUrl);
                 const authData = await response.json();
 
                 if (!authData.auth_required) {
@@ -1261,7 +1281,8 @@
             // Load config from backend if not already loaded
             if (!systemPrompt) {
                 try {
-                    const response = await fetch('/api/ai-proxy/config');
+                    const basePath = window.location.pathname.replace(/\/$/, '');
+                    const response = await fetch(`${basePath}/api/ai-proxy/config`);
                     const config = await response.json();
                     systemPrompt = config.default_system_prompt;
                     defaultProvider = config.default_provider;
@@ -1622,7 +1643,8 @@
 
         function resetSession() {
             if (confirm('Reset your terminal session?')) {
-                fetch(`/reset/${clientId}`, { method: 'POST' })
+                const basePath = window.location.pathname.replace(/\/$/, '');
+                fetch(`${basePath}/reset/${clientId}`, { method: 'POST' })
                     .then(r => r.json())
                     .then(data => {
                         if (term) term.clear();
@@ -1650,7 +1672,8 @@
             }
 
             // Fetch stats
-            fetch('/stats')
+            const basePath = window.location.pathname.replace(/\/$/, '');
+            fetch(`${basePath}/stats`)
                 .then(r => r.json())
                 .then(data => {
                     const stats = document.getElementById('stats');
@@ -1662,7 +1685,8 @@
         }
 
         // Check if auth is required
-        fetch('/api/auth/required')
+        const basePath = window.location.pathname.replace(/\/$/, '');
+        fetch(`${basePath}/api/auth/required`)
             .then(r => r.json())
             .then(data => {
                 if (data.auth_required) {
