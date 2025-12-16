@@ -25,6 +25,7 @@ class TerminalSession:
         self.is_active = False
         self.output_queue: asyncio.Queue = asyncio.Queue()  # Unlimited queue to prevent blocking
         self.read_task: Optional[asyncio.Task] = None
+        self._consumer_id: int = 0  # Track current consumer to handle reconnections
 
     def _clean_output(self, text: str) -> str:
         """Clean terminal output - minimal cleaning to preserve interactive tools"""
@@ -90,17 +91,35 @@ class TerminalSession:
 
     async def get_output_stream(self) -> AsyncIterator[str]:
         """Async generator that yields output as it becomes available"""
-        logger.debug(f"Starting output stream for session {self.session_id}")
+        # Increment consumer ID to invalidate old consumers on reconnection
+        self._consumer_id += 1
+        my_consumer_id = self._consumer_id
+        logger.info(f"Starting output stream for session {self.session_id} (consumer {my_consumer_id})")
+        
         try:
-            while True:
-                chunk = await self.output_queue.get()
-                if chunk is None:  # End of stream
-                    logger.debug(f"End of output stream for session {self.session_id}")
-                    break
-                yield chunk
+            while self.is_active and my_consumer_id == self._consumer_id:
+                try:
+                    # Use timeout to allow checking is_active and consumer_id periodically
+                    chunk = await asyncio.wait_for(self.output_queue.get(), timeout=0.5)
+                    if chunk is None:  # End of stream
+                        logger.debug(f"End of output stream for session {self.session_id}")
+                        break
+                    # Only yield if we're still the active consumer
+                    if my_consumer_id == self._consumer_id:
+                        yield chunk
+                    else:
+                        # Put the chunk back for the new consumer
+                        await self.output_queue.put(chunk)
+                        logger.debug(f"Consumer {my_consumer_id} superseded, returning chunk to queue")
+                        break
+                except asyncio.TimeoutError:
+                    # No data available, continue loop to check conditions
+                    continue
         except Exception as e:
             logger.error(f"Error in output stream for session {self.session_id}: {e}")
             raise
+        finally:
+            logger.info(f"Output stream ended for session {self.session_id} (consumer {my_consumer_id})")
 
     async def resize(self, rows: int, cols: int) -> None:
         """Resize the terminal window"""
