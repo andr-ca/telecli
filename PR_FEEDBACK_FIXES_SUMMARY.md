@@ -69,11 +69,20 @@ fallback_provider_names: Optional[list[str]] = None
 
 ### Core Logic
 - **`src/command_filter.py`**: Fixed IndexError vulnerability
-- **`src/ai_proxy.py`**: Renamed parameter for consistency
+- **`src/ai_proxy.py`**: Renamed parameter, added configurable values
 - **`src/web_app.py`**: Improved documentation
+- **`src/config.py`**: Added new configurable parameters with validation
+
+### LLM Providers
+- **`src/gemini_provider.py`**: Added configurable timeout
+- **`src/claude_provider.py`**: Added configurable timeout  
+- **`src/github_provider.py`**: Added configurable timeout
 
 ### User Interface
 - **`static/index.html`**: Added secure auth modal and JavaScript functions
+
+### Configuration
+- **`.env.sample`**: Documented all new configuration options
 
 ## 🧪 **Testing Results**
 
@@ -81,13 +90,40 @@ fallback_provider_names: Optional[list[str]] = None
 - ✅ **No Breaking Changes**: Existing functionality preserved
 - ✅ **Security Improvement**: Auth tokens now properly masked
 - ✅ **Error Prevention**: Command filter no longer vulnerable to crashes
+- ✅ **Configuration Flexibility**: All new config values have sensible defaults
+- ✅ **Backward Compatibility**: Existing deployments work without changes
+
+## ✅ **Additional Medium-Priority Improvements Implemented**
+
+### 5. **Configurable Buffer Sizes** 🔧
+**Issue**: Hardcoded buffer_size (1000) and context_lines (500) values
+**Fix**: Added environment variable configuration
+```bash
+AI_PROXY_BUFFER_SIZE=1000        # Output lines kept in memory (min: 100)
+AI_PROXY_CONTEXT_LINES=500       # Lines sent to LLM for context (min: 50)
+AI_PROXY_MAX_CONTEXT_SIZE=5000   # Max characters in LLM context (min: 1000)
+```
+**Impact**: Better flexibility for different deployment scenarios and performance tuning
+
+### 6. **Configurable LLM Timeout** ⏱️
+**Issue**: Hardcoded 900-second (15 minute) timeout for LLM providers
+**Fix**: Added configurable timeout via environment variable
+```bash
+LLM_TIMEOUT_SECONDS=90           # Timeout for LLM responses (min: 10)
+```
+**Impact**: Allows tuning for different LLM providers and network conditions
+
+### 7. **Enhanced Configuration Documentation** 📚
+**Issue**: New configuration options needed documentation
+**Fix**: Updated `.env.sample` with detailed comments and validation rules
+**Impact**: Better developer experience and easier deployment configuration
 
 ## 📋 **Remaining PR Comments (Future Consideration)**
 
-### Medium Priority (Not Implemented Yet)
-1. **Make Buffer Sizes Configurable**: Add env vars for buffer_size and context_lines
-2. **Make Context Size Configurable**: Extract 5000-char limit as constant
-3. **Make LLM Timeout Configurable**: Allow tuning of 90-second timeout
+### Low Priority (Considered but not critical)
+1. **Move System Prompt to File**: Current approach is simpler and adequate
+2. **Session ID Documentation**: Not critical for functionality
+3. **CSS !important Cleanup**: Works fine as-is, cosmetic improvement
 
 ### Low Priority (Ignored)
 1. **Move System Prompt to File**: Current approach is simpler
@@ -105,11 +141,15 @@ fallback_provider_names: Optional[list[str]] = None
 - **Better parameter naming** for developer clarity
 - **Enhanced documentation** for complex terminal operations
 - **Improved error handling** in critical paths
+- **Configurable parameters** instead of hardcoded values
+- **Centralized configuration** management
 
 ### User Experience Improvements
 - **Professional auth modal** instead of browser prompt
 - **Keyboard shortcuts** for modal interaction
 - **Visual feedback** and clear instructions
+- **Flexible configuration** for different deployment needs
+- **Better performance tuning** capabilities
 
 ## 🚀 **Next Steps**
 
