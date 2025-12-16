@@ -535,7 +535,7 @@ async def websocket_implementation(websocket: WebSocket, client_id: str):
         nonlocal connection_active
         try:
             while connection_active:
-                await asyncio.sleep(0.5)  # Check every 500ms
+                await asyncio.sleep(2.0)  # Check every 2 seconds to reduce log spam
                 if not connection_active:
                     break
                 
@@ -549,11 +549,7 @@ async def websocket_implementation(websocket: WebSocket, client_id: str):
                 if ai_proxy and ai_proxy.is_enabled():
                     logger.debug(f"🤖 Calling AI proxy process_output for {client_id}")
                     await ai_proxy.process_output()
-                else:
-                    if ai_proxy:
-                        logger.debug(f"🤖 AI proxy exists but not enabled for {client_id}")
-                    else:
-                        logger.debug(f"🤖 No AI proxy found for {client_id}")
+                # Remove debug logging for "no AI proxy" to reduce log spam
         except Exception as e:
             logger.debug(f"AI proxy checker ended for {client_id}: {e}")
 

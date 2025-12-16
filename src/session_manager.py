@@ -89,10 +89,20 @@ class SessionManager:
             self.active_connections[session_id] = 0
             self.active_websockets[session_id] = []
         
-        # TEMPORARY: Disable immediate connection closure to allow terminal output to complete
-        # Let the time-based detection handle connection cleanup instead
-        if len(self.active_websockets[session_id]) > 2:
-            logger.warning(f"⚠️ Multiple connections ({len(self.active_websockets[session_id])}) for {session_id} - relying on time-based cleanup")
+        # CRITICAL FIX: Close old connections immediately but allow brief overlap for terminal output
+        if len(self.active_websockets[session_id]) >= 2:
+            logger.warning(f"🔧 CLOSING {len(self.active_websockets[session_id])} old connections for {session_id}")
+            # Close all existing connections except keep space for the new one
+            for old_ws in self.active_websockets[session_id]:
+                try:
+                    # Close immediately - the duplication is worse than brief connection interruption
+                    asyncio.create_task(old_ws.close(code=1000, reason="Superseded by new connection"))
+                    logger.info(f"✅ Closed old connection for {session_id}")
+                except Exception as e:
+                    logger.debug(f"Error closing old connection: {e}")
+            # Clear the list for the new connection
+            self.active_websockets[session_id] = []
+            self.active_connections[session_id] = 0
         
         # Add the new connection
         if websocket:
@@ -119,9 +129,9 @@ class SessionManager:
         """Check if a connection is outdated (newer connection exists)"""
         latest_time = self.latest_connection_time.get(session_id)
         if latest_time and connection_time < latest_time:
-            # Add a grace period to allow terminal output to complete
+            # Reduce grace period to prevent duplication spam
             time_diff = (latest_time - connection_time).total_seconds()
-            if time_diff > 1.0:  # Only consider outdated if more than 1 second old
+            if time_diff > 0.5:  # Only consider outdated if more than 0.5 second old
                 logger.info(f"Connection for {session_id} is outdated: {connection_time} < {latest_time} (diff: {time_diff:.1f}s)")
                 return True
             else:
