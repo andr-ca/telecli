@@ -576,6 +576,12 @@
                 mainContent.classList.add('split-view');
                 btn.textContent = '🔍 Hide Monitor';
 
+                // Add test entry to verify monitor is working
+                addLLMEntry('info', {
+                    message: 'LLM Monitor opened - monitoring AI Proxy activity',
+                    timestamp: new Date().toISOString()
+                });
+
                 // Initialize resizer if not already done
                 if (!window.resizerInitialized) {
                     initializeResizer();
