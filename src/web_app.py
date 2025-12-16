@@ -368,6 +368,16 @@ async def websocket_implementation(websocket: WebSocket, client_id: str):
         # Mark session as reconnected (cancels any pending cleanup)
         await session_manager.mark_session_reconnected(client_id)
         logger.info(f"Reconnecting to existing session {client_id}")
+        
+        # Send current AI proxy status to frontend on reconnection
+        if ai_proxy and ai_proxy.is_enabled():
+            try:
+                status = ai_proxy.get_status()
+                await websocket.send_json({"proxy_status": status})
+                logger.info(f"Sent AI proxy status on reconnection: {status}")
+            except Exception as e:
+                logger.debug(f"Failed to send AI proxy status on reconnection: {e}")
+        
         # No automatic commands sent - preserve the exact session state
         # User can press Enter themselves if they want to see current prompt
     else:
