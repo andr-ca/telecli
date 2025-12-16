@@ -410,8 +410,10 @@ async def websocket_implementation(websocket: WebSocket, client_id: str):
                     input_text = message.get("input", "")
                     if input_text:
                         # Send input immediately for best responsiveness (this is user input)
+                        logger.info(f"📝 Sending input to terminal for {client_id}: {repr(input_text[:20])}")
                         try:
                             await session_manager.send_input(client_id, input_text, newline=False, from_ai=False)
+                            logger.info(f"✅ Input sent successfully to {client_id}")
                         except Exception as input_error:
                             logger.error(f"Error sending input to session {client_id}: {input_error}")
                             # Don't break the connection, just log the error and continue
@@ -421,10 +423,7 @@ async def websocket_implementation(websocket: WebSocket, client_id: str):
                         ai_proxy = session_manager.get_ai_proxy(client_id)
                         if ai_proxy and ai_proxy.is_enabled():
                             ai_proxy.notify_user_input(input_text)
-                        
-                        # Only log in debug mode to reduce overhead
-                        if logger.isEnabledFor(logging.DEBUG):
-                            logger.debug(f"Sent input to terminal for {client_id}: {repr(input_text[:50])}")
+                            logger.info(f"🤖 Notified AI proxy of user input for {client_id}")
                     
                     # Handle terminal resize
                     if "resize" in message:
