@@ -23,9 +23,8 @@ class TerminalSession:
         self.shell = shell or Config.TERMINAL_SHELL
         self.process: Optional[pexpect.spawn] = None
         self.is_active = False
-        self.output_queue: asyncio.Queue = asyncio.Queue()  # Unlimited queue to prevent blocking
+        self.output_subscribers: list[asyncio.Queue] = []  # Multiple subscribers for output
         self.read_task: Optional[asyncio.Task] = None
-        self._consumer_id: int = 0  # Track current consumer to handle reconnections
 
     def _clean_output(self, text: str) -> str:
         """Clean terminal output - minimal cleaning to preserve interactive tools"""
@@ -36,7 +35,7 @@ class TerminalSession:
         return text
 
     async def _read_loop(self):
-        """Background task that continuously reads from terminal and queues output"""
+        """Background task that continuously reads from terminal and broadcasts output"""
         logger.info(f"Starting read loop for session {self.session_id}")
         try:
             while self.is_active and self.process:
@@ -46,23 +45,45 @@ class TerminalSession:
                     if chunk:
                         # Clean the output
                         cleaned_chunk = self._clean_output(chunk)
-                        if cleaned_chunk:  # Only queue if there's content after cleaning
+                        if cleaned_chunk:  # Only broadcast if there's content after cleaning
                             logger.debug(f"Read {len(cleaned_chunk)} bytes from session {self.session_id}: {repr(cleaned_chunk[:50])}")
-                            await self.output_queue.put(cleaned_chunk)
+                            # Broadcast to all subscribers
+                            await self._broadcast_output(cleaned_chunk)
                 except pexpect.TIMEOUT:
                     # No data available, very small delay to avoid busy loop but maintain responsiveness
                     await asyncio.sleep(0.001)  # Reduced from 0.05 to 0.001 seconds
                 except pexpect.EOF:
                     logger.warning(f"EOF reached in session {self.session_id}")
                     self.is_active = False
-                    await self.output_queue.put(None)  # Signal end of stream
+                    await self._broadcast_output(None)  # Signal end of stream
                     break
                 except Exception as e:
                     logger.error(f"Error reading from session {self.session_id}: {e}")
                     break
         finally:
             logger.info(f"Read loop ended for session {self.session_id}")
-            await self.output_queue.put(None)  # Signal end of stream
+            await self._broadcast_output(None)  # Signal end of stream
+
+    async def _broadcast_output(self, chunk: Optional[str]):
+        """Broadcast output to all subscribers"""
+        if not self.output_subscribers:
+            return
+        
+        # Remove closed/full queues and broadcast to active ones
+        active_subscribers = []
+        for queue in self.output_subscribers:
+            try:
+                if chunk is not None:
+                    queue.put_nowait(chunk)
+                else:
+                    queue.put_nowait(None)  # End of stream signal
+                active_subscribers.append(queue)
+            except asyncio.QueueFull:
+                logger.warning(f"Subscriber queue full for session {self.session_id}, dropping")
+            except Exception as e:
+                logger.debug(f"Error broadcasting to subscriber: {e}")
+        
+        self.output_subscribers = active_subscribers
 
     async def start(self) -> bool:
         """Start a terminal session with background output reading"""
@@ -91,45 +112,36 @@ class TerminalSession:
 
     async def get_output_stream(self) -> AsyncIterator[str]:
         """Async generator that yields output as it becomes available"""
-        # Increment consumer ID to invalidate old consumers on reconnection
-        self._consumer_id += 1
-        my_consumer_id = self._consumer_id
-        logger.info(f"Starting output stream for session {self.session_id} (consumer {my_consumer_id})")
+        # Create a new queue for this subscriber
+        subscriber_queue = asyncio.Queue(maxsize=100)  # Limit queue size to prevent memory issues
+        self.output_subscribers.append(subscriber_queue)
         
-        # Clear any pending items in the queue to prevent duplication
-        # This ensures we start fresh and don't replay old output
-        queue_size = self.output_queue.qsize()
-        if queue_size > 0:
-            logger.debug(f"Clearing {queue_size} pending items from output queue for new consumer")
-            while not self.output_queue.empty():
-                try:
-                    self.output_queue.get_nowait()
-                except asyncio.QueueEmpty:
-                    break
+        subscriber_id = len(self.output_subscribers)
+        logger.info(f"Starting output stream for session {self.session_id} (subscriber {subscriber_id})")
         
         try:
-            while self.is_active and my_consumer_id == self._consumer_id:
+            while self.is_active:
                 try:
-                    # Use timeout to allow checking is_active and consumer_id periodically
-                    chunk = await asyncio.wait_for(self.output_queue.get(), timeout=0.5)
+                    # Use timeout to allow checking is_active periodically
+                    chunk = await asyncio.wait_for(subscriber_queue.get(), timeout=0.5)
                     if chunk is None:  # End of stream
-                        logger.debug(f"End of output stream for session {self.session_id}")
+                        logger.debug(f"End of output stream for session {self.session_id} (subscriber {subscriber_id})")
                         break
-                    # Only yield if we're still the active consumer
-                    if my_consumer_id == self._consumer_id:
-                        yield chunk
-                    else:
-                        # Don't put chunk back - let it be discarded to prevent duplication
-                        logger.debug(f"Consumer {my_consumer_id} superseded, discarding chunk")
-                        break
+                    yield chunk
                 except asyncio.TimeoutError:
                     # No data available, continue loop to check conditions
                     continue
         except Exception as e:
-            logger.error(f"Error in output stream for session {self.session_id}: {e}")
+            logger.error(f"Error in output stream for session {self.session_id} (subscriber {subscriber_id}): {e}")
             raise
         finally:
-            logger.info(f"Output stream ended for session {self.session_id} (consumer {my_consumer_id})")
+            # Remove this subscriber from the list
+            try:
+                self.output_subscribers.remove(subscriber_queue)
+                logger.info(f"Output stream ended for session {self.session_id} (subscriber {subscriber_id})")
+            except ValueError:
+                # Already removed
+                pass
 
     async def resize(self, rows: int, cols: int) -> None:
         """Resize the terminal window"""
