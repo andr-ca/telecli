@@ -43,14 +43,26 @@ async def register_connection(self, session_id: str, websocket=None) -> int:
 ```
 
 ### 2. Terminal Cursor Refresh
-**File: `src/web_app.py`**
+**Files: `src/terminal.py`, `src/session_manager.py`, `src/web_app.py`**
 
-When reconnecting to existing sessions, send a gentle refresh command to wake up the terminal:
+Added dedicated prompt refresh functionality to ensure cursor visibility on reconnection:
 
 ```python
+# In TerminalSession
+async def refresh_prompt(self) -> None:
+    """Refresh the terminal prompt to ensure cursor is visible"""
+    self.process.send('\x15')  # Ctrl+U (clear line)
+    await asyncio.sleep(0.05)  # Brief delay
+    self.process.send('\r')    # Enter to show fresh prompt
+
+# In SessionManager
+async def refresh_session_prompt(self, session_id: str) -> None:
+    """Refresh the terminal prompt for a session"""
+    await self.sessions[session_id].refresh_prompt()
+
+# In WebSocket handler
 if session_existed:
-    # Send a gentle terminal refresh to wake up the prompt and show cursor
-    await session_manager.send_input(client_id, "\r", newline=False, from_ai=False)
+    await session_manager.refresh_session_prompt(client_id)
 ```
 
 ### 3. Synchronous Connection Registration
@@ -72,7 +84,17 @@ connection_count = await session_manager.register_connection(client_id, websocke
 
 ## Testing
 
-Use `test_connection_management.py` to verify:
+Use the test scripts to verify:
+
+**Connection Management:**
+```bash
+python test_connection_management.py
+```
+
+**Cursor Display:**
+```bash
+python test_cursor_display.py
+```
 ```bash
 python test_connection_management.py
 ```
@@ -81,7 +103,7 @@ Check server logs for:
 - `🔧 CLOSING X old connections` messages
 - `✅ All old connections closed` confirmations
 - No more `🚨 MULTIPLE CONNECTIONS` errors
-- `Sent terminal refresh command` on reconnections
+- `Refreshed terminal prompt for session` on reconnections
 
 ## Monitoring
 
