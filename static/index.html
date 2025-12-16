@@ -678,6 +678,8 @@
                 entry = createLLMErrorEntry(data, timestamp);
             } else if (type === 'status') {
                 entry = createLLMStatusEntry(data, timestamp);
+            } else if (type === 'info') {
+                entry = createLLMInfoEntry(data, timestamp);
             }
 
             if (entry) {
@@ -752,6 +754,19 @@
             entry.innerHTML = `
                 <div class="llm-entry-header">
                     <span>ℹ️ ${data.title || 'STATUS'}</span>
+                    <span class="llm-entry-timestamp">${timestamp}</span>
+                </div>
+                <div class="llm-entry-content">${escapeHtml(data.message || data.content || 'No message')}</div>
+            `;
+            return entry;
+        }
+
+        function createLLMInfoEntry(data, timestamp) {
+            const entry = document.createElement('div');
+            entry.className = 'llm-entry info';
+            entry.innerHTML = `
+                <div class="llm-entry-header">
+                    <span>💡 ${data.title || 'INFO'}</span>
                     <span class="llm-entry-timestamp">${timestamp}</span>
                 </div>
                 <div class="llm-entry-content">${escapeHtml(data.message || data.content || 'No message')}</div>
