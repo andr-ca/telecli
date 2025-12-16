@@ -25,6 +25,9 @@ class TerminalSession:
         self.is_active = False
         self.output_queue: asyncio.Queue = asyncio.Queue()  # Unlimited queue to prevent blocking
         self.read_task: Optional[asyncio.Task] = None
+        # Lock to ensure only one output stream reader at a time
+        # This prevents duplicate output when connections are replaced
+        self.output_stream_lock: asyncio.Lock = asyncio.Lock()
 
     def _clean_output(self, text: str) -> str:
         """Clean terminal output - minimal cleaning to preserve interactive tools"""
@@ -114,26 +117,34 @@ class TerminalSession:
             return False
 
     async def get_output_stream(self) -> AsyncIterator[str]:
-        """Async generator that yields output as it becomes available"""
+        """Async generator that yields output as it becomes available
+        
+        Uses a lock to ensure only one reader at a time, preventing duplicate
+        output when connections are replaced.
+        """
         logger.info(f"Starting output stream for session {self.session_id}")
         
-        try:
-            while self.is_active:
-                try:
-                    # Use timeout to allow checking is_active periodically
-                    chunk = await asyncio.wait_for(self.output_queue.get(), timeout=0.5)
-                    if chunk is None:  # End of stream
-                        logger.debug(f"End of output stream for session {self.session_id}")
-                        break
-                    yield chunk
-                except asyncio.TimeoutError:
-                    # No data available, continue loop to check conditions
-                    continue
-        except Exception as e:
-            logger.error(f"Error in output stream for session {self.session_id}: {e}")
-            raise
-        finally:
-            logger.info(f"Output stream ended for session {self.session_id}")
+        # Acquire lock - if another stream is reading, wait for it to finish
+        # This ensures clean handoff when connections are replaced
+        async with self.output_stream_lock:
+            logger.debug(f"Acquired output stream lock for session {self.session_id}")
+            try:
+                while self.is_active:
+                    try:
+                        # Use timeout to allow checking is_active periodically
+                        chunk = await asyncio.wait_for(self.output_queue.get(), timeout=0.5)
+                        if chunk is None:  # End of stream
+                            logger.debug(f"End of output stream for session {self.session_id}")
+                            break
+                        yield chunk
+                    except asyncio.TimeoutError:
+                        # No data available, continue loop to check conditions
+                        continue
+            except Exception as e:
+                logger.error(f"Error in output stream for session {self.session_id}: {e}")
+                raise
+            finally:
+                logger.info(f"Output stream ended for session {self.session_id}")
 
     async def resize(self, rows: int, cols: int) -> None:
         """Resize the terminal window"""

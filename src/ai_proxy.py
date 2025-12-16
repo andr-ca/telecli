@@ -136,6 +136,21 @@ class AIProxy:
         if not self.enabled:
             return
         
+        # Filter out terminal focus sequences - these are not real user input
+        # \x1b[I = focus in, \x1b[O = focus out (sent by xterm.js)
+        if text in ('\x1b[I', '\x1b[O', '\x1b[i', '\x1b[o'):
+            logger.debug(f"Ignoring focus sequence: {repr(text)}")
+            return
+        
+        # Also filter out other non-user escape sequences that might be sent
+        # by the terminal emulator (cursor position reports, etc.)
+        if text.startswith('\x1b[') and len(text) <= 6:
+            # Short escape sequences are usually terminal control, not user input
+            # Real user input like arrow keys are handled differently
+            if text not in ('\x1b[A', '\x1b[B', '\x1b[C', '\x1b[D'):  # Allow arrow keys
+                logger.debug(f"Ignoring terminal control sequence: {repr(text)}")
+                return
+        
         self.last_user_input_time = asyncio.get_event_loop().time()
         self.user_input_buffer.append(text)
         
