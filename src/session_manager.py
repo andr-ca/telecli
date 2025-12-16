@@ -205,7 +205,7 @@ class SessionManager:
             llm_provider=llm_provider,
             system_prompt=prompt,
             max_iterations=Config.AI_PROXY_MAX_ITERATIONS,
-            fallback_providers=fallback_names
+            fallback_provider_names=fallback_names
         )
         
         # Set callback to send input to terminal
