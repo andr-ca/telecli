@@ -368,15 +368,8 @@ async def websocket_implementation(websocket: WebSocket, client_id: str):
         # Mark session as reconnected (cancels any pending cleanup)
         await session_manager.mark_session_reconnected(client_id)
         logger.info(f"Reconnecting to existing session {client_id}")
-        
-        # Send a gentle refresh to show current prompt/state
-        # This helps when switching between sessions to see the current state
-        try:
-            # Send a simple newline to trigger prompt display without disrupting work
-            await session_manager.send_input(client_id, "", newline=True, from_ai=False)
-            logger.debug(f"Sent gentle refresh to existing session {client_id}")
-        except Exception as e:
-            logger.debug(f"Could not send refresh to session {client_id}: {e}")
+        # No automatic commands sent - preserve the exact session state
+        # User can press Enter themselves if they want to see current prompt
     else:
         logger.debug(f"New session {client_id} - creating fresh terminal")
 

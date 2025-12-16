@@ -955,7 +955,7 @@
             if (term) {
                 term.clear();
                 if (sessionExists) {
-                    term.write('\r\n\x1b[33m[Switching to existing session...]\x1b[0m\r\n');
+                    term.write('\r\n\x1b[33m[Switching to existing session - press Enter to see current prompt]\x1b[0m\r\n');
                 } else {
                     term.write('\r\n\x1b[32m[Starting new session...]\x1b[0m\r\n');
                 }
