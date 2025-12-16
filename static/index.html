@@ -25,14 +25,12 @@
                 </div>
 
                 <div class="controls-compact">
-                    <button id="ai-proxy-btn" onclick="toggleAIProxy()">🤖</button>
-                    <button id="ai-proxy-reset-btn" onclick="resetAIProxy()" style="display: none;"
-                        title="Reset AI">🔄</button>
+                    <button id="ai-proxy-btn" onclick="toggleAIProxy()">🤖 AI Proxy: OFF</button>
+                    <button id="ai-proxy-reset-btn" onclick="resetAIProxy()" style="display: none;">🔄 Reset</button>
 
                     <!-- Mobile Controls Menu -->
                     <div class="submenu-container">
-                        <button id="mobile-controls-btn" onclick="toggleMobileControlsMenu()"
-                            title="Mobile Controls">📱</button>
+                        <button id="mobile-controls-btn" onclick="toggleMobileControlsMenu()">📱 Mobile</button>
                         <div id="mobile-controls-menu" class="submenu mobile-controls-submenu" style="display: none;">
                             <!-- Arrow Keys Section -->
                             <div class="mobile-section">
@@ -90,12 +88,15 @@
                             </div>
                         </div>
                     </div>
+                </div>
 
-                    <button id="session-btn" onclick="openSessionPicker()" title="Sessions">📋</button>
-                    <button id="reset-btn" onclick="resetSession()" title="Reset Terminal">🔁</button>
-                    <button id="llm-monitor-btn" onclick="toggleLLMMonitor()" title="LLM Monitor">🔍</button>
-                    <button id="theme-btn" onclick="toggleTheme()" title="Toggle Theme">🎨</button>
-                    <button id="auth-btn" onclick="clearAuth()" style="display: none;" title="Clear Auth">🔓</button>
+                <!-- Secondary Controls Row -->
+                <div class="secondary-controls">
+                    <button id="session-btn" onclick="openSessionPicker()">📋 Sessions</button>
+                    <button id="reset-btn" onclick="resetSession()">🔁 Reset</button>
+                    <button id="llm-monitor-btn" onclick="toggleLLMMonitor()">🔍 Monitor</button>
+                    <button id="theme-btn" onclick="toggleTheme()">🎨 Theme</button>
+                    <button id="auth-btn" onclick="clearAuth()" style="display: none;">🔓 Auth</button>
                 </div>
             </div>
 

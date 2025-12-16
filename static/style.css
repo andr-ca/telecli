@@ -100,29 +100,28 @@ header {
 
 .header-compact {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 12px;
+    flex-direction: column;
+    gap: 8px;
 }
 
 .title-section {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     gap: 12px;
-    flex: 1;
 }
 
 .title-section h1 {
     margin: 0;
-    font-size: 1.2em;
+    font-size: 1.3em;
     white-space: nowrap;
 }
 
 .status-inline {
     display: flex;
     flex-direction: column;
-    align-items: flex-start;
-    font-size: 10px;
+    align-items: flex-end;
+    font-size: 11px;
     line-height: 1.2;
     opacity: 0.8;
 }
@@ -130,15 +129,33 @@ header {
 .controls-compact {
     display: flex;
     align-items: center;
-    gap: 4px;
-    flex-shrink: 0;
+    justify-content: center;
+    gap: 8px;
+    flex-wrap: wrap;
 }
 
 .controls-compact button {
-    padding: 6px 8px;
-    font-size: 14px;
-    min-width: 32px;
+    padding: 8px 12px;
+    font-size: 13px;
+    min-width: auto;
+    height: 36px;
+    white-space: nowrap;
+}
+
+.secondary-controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.secondary-controls button {
+    padding: 6px 10px;
+    font-size: 12px;
+    min-width: auto;
     height: 32px;
+    white-space: nowrap;
 }
 
 .status-line {
@@ -1084,30 +1101,43 @@ body.theme-modern .submenu-divider {
     }
 
     header {
-        padding: 6px 8px;
+        padding: 8px 10px;
     }
 
     .header-compact {
-        gap: 8px;
+        gap: 6px;
     }
 
     .title-section h1 {
-        font-size: 1.1em;
+        font-size: 1.2em;
     }
 
     .status-inline {
-        font-size: 9px;
+        font-size: 10px;
     }
 
     .controls-compact {
-        gap: 3px;
+        gap: 6px;
     }
 
     .controls-compact button {
-        padding: 4px 6px;
+        padding: 8px 10px;
         font-size: 12px;
-        min-width: 28px;
-        height: 28px;
+        height: 40px;
+        min-width: 44px;
+        /* Apple's minimum touch target recommendation */
+    }
+
+    .secondary-controls {
+        gap: 4px;
+    }
+
+    .secondary-controls button {
+        padding: 6px 8px;
+        font-size: 11px;
+        height: 36px;
+        min-width: 44px;
+        /* Apple's minimum touch target recommendation */
     }
 
     .mobile-controls-submenu {
