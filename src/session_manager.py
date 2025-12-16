@@ -143,34 +143,48 @@ class SessionManager:
 
     async def close_session(self, session_id: str) -> None:
         """Close a specific session"""
-        if session_id not in self.sessions:
+        # Check if session exists before attempting cleanup
+        session_exists = session_id in self.sessions
+        ai_proxy_exists = session_id in self.ai_proxies
+        
+        if not session_exists and not ai_proxy_exists:
             logger.debug(f"Session {session_id} already closed or doesn't exist")
             return
             
+        logger.info(f"Closing session {session_id} (session_exists={session_exists}, ai_proxy_exists={ai_proxy_exists})")
+        
         try:
             # Disable AI proxy if active
-            if session_id in self.ai_proxies:
+            if ai_proxy_exists:
                 try:
                     await self.disable_ai_proxy(session_id)
                 except Exception as e:
                     logger.error(f"Error disabling AI proxy for session {session_id}: {e}")
             
-            # Stop the terminal session
-            try:
-                await self.sessions[session_id].stop()
-            except Exception as e:
-                logger.error(f"Error stopping terminal session {session_id}: {e}")
+            # Stop the terminal session if it exists
+            if session_exists:
+                try:
+                    session = self.sessions[session_id]
+                    await session.stop()
+                    logger.debug(f"Successfully stopped terminal session {session_id}")
+                except Exception as e:
+                    logger.error(f"Error stopping terminal session {session_id}: {e}")
                 
         except Exception as e:
             logger.error(f"Error during session cleanup {session_id}: {e}")
         finally:
-            # Always remove from sessions dict, even if there were errors
-            try:
-                if session_id in self.sessions:
+            # Always remove from sessions dict if it exists, even if there were errors
+            if session_exists:
+                try:
                     del self.sessions[session_id]
                     logger.info(f"Closed session {session_id}, remaining sessions: {len(self.sessions)}")
-            except Exception as e:
-                logger.error(f"Error removing session {session_id} from sessions dict: {e}")
+                except KeyError:
+                    # Session was already removed by another thread/process
+                    logger.debug(f"Session {session_id} was already removed from sessions dict")
+                except Exception as e:
+                    logger.error(f"Unexpected error removing session {session_id} from sessions dict: {e}")
+            else:
+                logger.debug(f"Session {session_id} was not in sessions dict, cleanup completed")
 
     async def close_all(self) -> None:
         """Close all sessions"""

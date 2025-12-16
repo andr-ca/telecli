@@ -5,11 +5,13 @@ import logging
 import json
 import asyncio
 from datetime import datetime
-from fastapi import FastAPI, WebSocket, HTTPException
+from fastapi import FastAPI, WebSocket, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from contextlib import asynccontextmanager
 from starlette.websockets import WebSocketDisconnect
+from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import ValidationError
 from src.session_manager import SessionManager
 from src.config import Config
@@ -32,7 +34,31 @@ async def lifespan(app: FastAPI):
     logger.info("Web app stopped")
 
 
-app = FastAPI(title="TeleCLI", lifespan=lifespan)
+app = FastAPI(
+    title="TeleCLI", 
+    lifespan=lifespan,
+)
+
+# Add middleware to handle reverse proxy headers
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
+
+# Add custom middleware to handle potential request issues
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        try:
+            # Log incoming requests for debugging
+            logger.debug(f"Incoming request: {request.method} {request.url}")
+            logger.debug(f"Headers: {dict(request.headers)}")
+            
+            response = await call_next(request)
+            return response
+        except Exception as e:
+            logger.error(f"Request processing error: {e}")
+            logger.error(f"Request URL: {request.url}")
+            logger.error(f"Request method: {request.method}")
+            raise
+
+app.add_middleware(RequestLoggingMiddleware)
 
 # Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -44,15 +70,72 @@ async def get_root():
     return FileResponse("static/index.html")
 
 
+@app.get("/telecli")
+async def get_telecli_root():
+    """Serve the web UI for Cloudflare tunnel path"""
+    return FileResponse("static/index.html")
+
+
+@app.get("/telecli/")
+async def get_telecli_root_slash():
+    """Serve the web UI for Cloudflare tunnel path with trailing slash"""
+    return FileResponse("static/index.html")
+
+
 @app.get("/style.css")
 async def get_style():
     """Serve the CSS file"""
     return FileResponse("static/style.css")
 
 
+@app.get("/telecli/style.css")
+async def get_telecli_style():
+    """Serve the CSS file for Cloudflare tunnel path"""
+    return FileResponse("static/style.css")
+
+
+@app.get("/debug")
+async def debug_info(request: Request):
+    """Debug endpoint to check request information"""
+    return {
+        "url": str(request.url),
+        "method": request.method,
+        "headers": dict(request.headers),
+        "path": request.url.path,
+        "query": request.url.query,
+        "host": request.headers.get("host"),
+        "x_forwarded_for": request.headers.get("x-forwarded-for"),
+        "x_forwarded_proto": request.headers.get("x-forwarded-proto"),
+    }
+
+
+@app.get("/telecli/debug")
+async def debug_info_telecli(request: Request):
+    """Debug endpoint to check request information (telecli path)"""
+    return {
+        "url": str(request.url),
+        "method": request.method,
+        "headers": dict(request.headers),
+        "path": request.url.path,
+        "query": request.url.query,
+        "host": request.headers.get("host"),
+        "x_forwarded_for": request.headers.get("x-forwarded-for"),
+        "x_forwarded_proto": request.headers.get("x-forwarded-proto"),
+    }
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
+    stats = session_manager.get_stats()
+    return {
+        "status": "healthy",
+        "sessions": stats,
+    }
+
+
+@app.get("/telecli/health")
+async def health_check_telecli():
+    """Health check endpoint (telecli path)"""
     stats = session_manager.get_stats()
     return {
         "status": "healthy",
@@ -67,9 +150,31 @@ async def get_stats():
     return stats
 
 
+@app.get("/telecli/stats")
+async def get_stats_telecli():
+    """Get server statistics (telecli path)"""
+    stats = session_manager.get_stats()
+    return stats
+
+
 @app.get("/api/sessions")
 async def get_active_sessions():
     """Get list of active sessions"""
+    sessions = []
+    for session_id, session in session_manager.sessions.items():
+        if session.is_active:
+            sessions.append({
+                "id": session_id,
+                "created_at": session_id.split('-')[-1] if '-' in session_id else "unknown",
+                "shell": session.shell,
+                "is_active": session.is_active
+            })
+    return {"sessions": sessions}
+
+
+@app.get("/telecli/api/sessions")
+async def get_active_sessions_telecli():
+    """Get list of active sessions (telecli path)"""
     sessions = []
     for session_id, session in session_manager.sessions.items():
         if session.is_active:
@@ -113,6 +218,19 @@ async def clear_llm_monitor_data():
     return {"status": "cleared"}
 
 
+@app.get("/telecli/api/llm-monitor")
+async def get_llm_monitor_data_telecli():
+    """Get LLM monitor data (telecli path)"""
+    return {"entries": llm_monitor_data}
+
+@app.delete("/telecli/api/llm-monitor")
+async def clear_llm_monitor_data_telecli():
+    """Clear LLM monitor data (telecli path)"""
+    global llm_monitor_data
+    llm_monitor_data = []
+    return {"status": "cleared"}
+
+
 @app.get("/api/auth/required")
 async def get_auth_required():
     """Get whether authentication is required"""
@@ -121,9 +239,27 @@ async def get_auth_required():
     }
 
 
+@app.get("/telecli/api/auth/required")
+async def get_auth_required_telecli():
+    """Get whether authentication is required (telecli path)"""
+    return {
+        "auth_required": Config.AUTH_REQUIRED
+    }
+
+
 @app.get("/api/ai-proxy/config")
 async def get_ai_proxy_config():
     """Get AI proxy configuration (single source of truth)"""
+    return {
+        "default_provider": Config.AI_PROXY_PROVIDER,
+        "default_system_prompt": Config.AI_PROXY_SYSTEM_PROMPT,
+        "max_iterations": Config.AI_PROXY_MAX_ITERATIONS
+    }
+
+
+@app.get("/telecli/api/ai-proxy/config")
+async def get_ai_proxy_config_telecli():
+    """Get AI proxy configuration (telecli path)"""
     return {
         "default_provider": Config.AI_PROXY_PROVIDER,
         "default_system_prompt": Config.AI_PROXY_SYSTEM_PROMPT,
@@ -143,8 +279,33 @@ async def reset_session(client_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/telecli/reset/{client_id}")
+async def reset_session_telecli(client_id: str):
+    """Reset a client's session (telecli path)"""
+    try:
+        await session_manager.close_session(client_id)
+        logger.info(f"Reset session for client {client_id}")
+        return {"status": "ok", "message": "Session reset"}
+    except Exception as e:
+        logger.error(f"Error resetting session {client_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.websocket("/ws/{client_id}")
 async def websocket_endpoint(websocket: WebSocket, client_id: str):
+    """WebSocket endpoint for bidirectional terminal streaming"""
+    # Delegate to the main implementation
+    await websocket_implementation(websocket, client_id)
+
+
+@app.websocket("/telecli/ws/{client_id}")
+async def websocket_endpoint_telecli(websocket: WebSocket, client_id: str):
+    """WebSocket endpoint for bidirectional terminal streaming (telecli path)"""
+    # Delegate to the main implementation
+    await websocket_implementation(websocket, client_id)
+
+
+async def websocket_implementation(websocket: WebSocket, client_id: str):
     """WebSocket endpoint for bidirectional terminal streaming"""
 
     # Check authentication if required
@@ -407,10 +568,22 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
         try:
             if session_manager and client_id:
                 await session_manager.close_session(client_id)
+        except KeyError as e:
+            # Session was already closed or doesn't exist - this is normal during browser refresh
+            logger.debug(f"Session {client_id} was already closed: {e}")
         except Exception as e:
             logger.error(f"Error closing session {client_id}: {e}")
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host=Config.WEB_HOST, port=Config.WEB_PORT)
+    uvicorn.run(
+        app, 
+        host=Config.WEB_HOST, 
+        port=Config.WEB_PORT,
+        access_log=True,
+        server_header=False,
+        date_header=False,
+        forwarded_allow_ips="*",  # Allow forwarded headers from any IP (for Cloudflare)
+        proxy_headers=True,       # Trust proxy headers
+    )
