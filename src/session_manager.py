@@ -96,13 +96,23 @@ class SessionManager:
         self.active_websocket[session_id] = websocket
         logger.info(f"Registered connection for {session_id}")
 
-    def unregister_connection(self, session_id: str, websocket=None):
-        """Unregister a WebSocket connection for a session"""
+    def unregister_connection(self, session_id: str, websocket=None) -> bool:
+        """Unregister a WebSocket connection for a session
+        
+        Returns:
+            True if this was the active connection and was unregistered
+            False if this was an old/replaced connection
+        """
         if session_id in self.active_websocket:
             # Only unregister if it's the same websocket (or no websocket specified)
             if websocket is None or self.active_websocket[session_id] == websocket:
                 del self.active_websocket[session_id]
                 logger.info(f"Unregistered connection for {session_id}")
+                return True
+            else:
+                logger.debug(f"Skipping unregister for old connection {session_id}")
+                return False
+        return False
 
     async def get_output_stream(self, session_id: str, client_ip: Optional[str] = None):
         """Get output stream from a session"""

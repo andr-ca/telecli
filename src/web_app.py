@@ -569,27 +569,30 @@ async def websocket_implementation(websocket: WebSocket, client_id: str):
         connection_active = False
         logger.info(f"WebSocket connection closed for client {client_id}")
         
-        # Unregister this connection
+        # Unregister this connection - returns True if this was the active connection
+        was_active_connection = False
         try:
-            session_manager.unregister_connection(client_id, websocket)
+            was_active_connection = session_manager.unregister_connection(client_id, websocket)
         except Exception as e:
             logger.debug(f"Error unregistering connection for {client_id}: {e}")
         
-        # Clear the monitor callback for this session's AI proxy
-        try:
-            ai_proxy = session_manager.get_ai_proxy(client_id)
-            if ai_proxy:
-                ai_proxy.set_monitor_callback(None)
-        except Exception as e:
-            logger.debug(f"Error clearing monitor callback for {client_id}: {e}")
-        
-        # Mark session as disconnected (keeps it alive for reconnection)
-        # Session will be closed after grace period if no reconnection
-        try:
-            if session_manager and client_id:
-                await session_manager.mark_session_disconnected(client_id)
-        except Exception as e:
-            logger.error(f"Error marking session {client_id} as disconnected: {e}")
+        # Only do cleanup if this was the active connection (not an old replaced one)
+        if was_active_connection:
+            # Clear the monitor callback for this session's AI proxy
+            try:
+                ai_proxy = session_manager.get_ai_proxy(client_id)
+                if ai_proxy:
+                    ai_proxy.set_monitor_callback(None)
+            except Exception as e:
+                logger.debug(f"Error clearing monitor callback for {client_id}: {e}")
+            
+            # Mark session as disconnected (keeps it alive for reconnection)
+            # Session will be closed after grace period if no reconnection
+            try:
+                if session_manager and client_id:
+                    await session_manager.mark_session_disconnected(client_id)
+            except Exception as e:
+                logger.error(f"Error marking session {client_id} as disconnected: {e}")
 
 
 if __name__ == "__main__":
