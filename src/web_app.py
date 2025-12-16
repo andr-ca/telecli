@@ -239,20 +239,13 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
                     message = json.loads(data)
                     input_text = message.get("input", "")
                     if input_text:
-                        # Check if session is still active before sending input
-                        try:
-                            session = await session_manager.get_session(client_id)
-                            if not session.is_active:
-                                logger.warning(f"Session {client_id} is not active, cannot send input")
-                                await websocket.send_json({"error": "Session not active"})
-                                continue
-                        except Exception as session_error:
-                            logger.error(f"Error getting session {client_id}: {session_error}")
-                            await websocket.send_json({"error": "Session error"})
-                            continue
-                        
                         # Send input immediately for best responsiveness (this is user input)
-                        await session_manager.send_input(client_id, input_text, newline=False, from_ai=False)
+                        try:
+                            await session_manager.send_input(client_id, input_text, newline=False, from_ai=False)
+                        except Exception as input_error:
+                            logger.error(f"Error sending input to session {client_id}: {input_error}")
+                            # Don't break the connection, just log the error and continue
+                            continue
                         
                         # Notify AI proxy after sending (non-blocking) - only for user input
                         ai_proxy = session_manager.get_ai_proxy(client_id)
@@ -291,15 +284,24 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
                                     ai_proxy.set_monitor_callback(llm_monitor_callback)
                                     status = ai_proxy.get_status()
                                     logger.info(f"Status: {status}")
-                                    await websocket.send_json({"proxy_status": status})
+                                    try:
+                                        await websocket.send_json({"proxy_status": status})
+                                    except Exception as ws_error:
+                                        logger.debug(f"Failed to send proxy status: {ws_error}")
                             else:
                                 logger.error(f"❌ Failed to enable AI proxy for {client_id}")
-                                await websocket.send_json({"error": "Failed to enable AI proxy"})
+                                try:
+                                    await websocket.send_json({"error": "Failed to enable AI proxy"})
+                                except Exception as ws_error:
+                                    logger.debug(f"Failed to send error message: {ws_error}")
                         elif proxy_cmd.get("disable"):
                             logger.info(f"🔧 Disabling AI proxy for {client_id}")
                             await session_manager.disable_ai_proxy(client_id)
                             logger.info(f"✅ Disabled AI proxy for {client_id}")
-                            await websocket.send_json({"proxy_status": {"enabled": False}})
+                            try:
+                                await websocket.send_json({"proxy_status": {"enabled": False}})
+                            except Exception as ws_error:
+                                logger.debug(f"Failed to send proxy disable status: {ws_error}")
                 except json.JSONDecodeError as e:
                     logger.error(f"JSON decode error from client {client_id}: {e}")
                     # Continue processing other messages despite JSON error
@@ -319,6 +321,9 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
             connection_active = False
         except Exception as e:
             logger.error(f"Input handler error for {client_id}: {e}")
+            logger.error(f"Exception type: {type(e).__name__}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             connection_active = False
 
     async def handle_output():
@@ -382,9 +387,13 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
     except Exception as e:
         connection_active = False
         logger.error(f"WebSocket error for client {client_id}: {e}")
+        logger.error(f"WebSocket exception type: {type(e).__name__}")
+        import traceback
+        logger.error(f"WebSocket traceback: {traceback.format_exc()}")
     finally:
         connection_active = False
         logger.info(f"WebSocket connection closed for client {client_id}")
+        logger.info(f"Connection closed - connection_active set to False")
         
         # Clear the monitor callback for this session's AI proxy
         try:

@@ -151,6 +151,9 @@ body.theme-modern header p {
     overflow: hidden;
     padding: 10px;
     transition: background 0.3s ease;
+    /* Ensure proper space allocation within terminal panel */
+    min-height: 0;
+    /* Allow flex shrinking */
 }
 
 /* Matrix theme terminal */
@@ -166,6 +169,38 @@ body.theme-modern .terminal {
 #terminal-container {
     width: 100%;
     height: 100%;
+    /* Ensure terminal content doesn't overflow into footer */
+    box-sizing: border-box;
+    overflow: hidden;
+}
+
+/* Ensure xterm.js terminal fits properly */
+#terminal-container .xterm {
+    height: 100% !important;
+    width: 100% !important;
+}
+
+#terminal-container .xterm-viewport {
+    overflow-y: auto !important;
+}
+
+#terminal-container .xterm-screen {
+    height: 100% !important;
+}
+
+/* Enhance text selection visibility in terminal */
+#terminal-container .xterm-selection {
+    background-color: rgba(255, 255, 255, 0.3) !important;
+}
+
+/* Matrix theme selection */
+body.theme-matrix #terminal-container .xterm-selection {
+    background-color: rgba(0, 255, 65, 0.3) !important;
+}
+
+/* Modern theme selection */
+body.theme-modern #terminal-container .xterm-selection {
+    background-color: rgba(137, 180, 250, 0.3) !important;
 }
 
 .terminal-output {
@@ -318,6 +353,11 @@ footer {
     align-items: center;
     font-size: 13px;
     transition: all 0.3s ease;
+    /* Ensure footer doesn't overlap terminal content */
+    flex-shrink: 0;
+    /* Prevent footer from shrinking */
+    min-height: 40px;
+    /* Ensure consistent footer height */
 }
 
 /* Matrix theme footer */
@@ -522,6 +562,9 @@ body.theme-modern .session-item:hover {
     width: 100%;
     height: 100%;
     transition: width 0.3s ease;
+    /* Ensure proper space distribution */
+    min-height: 0;
+    /* Allow flex shrinking */
 }
 
 .main-content.split-view .terminal-panel {
@@ -801,6 +844,143 @@ body.theme-modern .confidence-medium {
 body.theme-modern .confidence-low {
     background: rgba(243, 139, 168, 0.2);
     color: #f38ba8;
+}
+
+/* Submenu styles */
+.submenu-container {
+    position: relative;
+    display: inline-block;
+}
+
+.submenu {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    min-width: 150px;
+    z-index: 1000;
+    border-radius: 8px;
+    padding: 8px 0;
+    margin-top: 4px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    transition: all 0.2s ease;
+}
+
+.submenu button {
+    display: block;
+    width: 100%;
+    padding: 8px 16px;
+    border: none;
+    background: transparent;
+    text-align: left;
+    font-size: 13px;
+    border-radius: 0;
+    margin: 0;
+    transition: background-color 0.2s ease;
+}
+
+.submenu button:hover {
+    transform: none;
+    box-shadow: none;
+}
+
+/* Matrix theme submenu */
+body.theme-matrix .submenu {
+    background: rgba(0, 20, 0, 0.95);
+    border: 1px solid rgba(0, 255, 65, 0.3);
+}
+
+body.theme-matrix .submenu button {
+    color: #00ff41;
+}
+
+body.theme-matrix .submenu button:hover {
+    background: rgba(0, 255, 65, 0.1);
+}
+
+/* Modern theme submenu */
+body.theme-modern .submenu {
+    background: rgba(49, 50, 68, 0.95);
+    border: 1px solid rgba(137, 180, 250, 0.3);
+    backdrop-filter: blur(10px);
+}
+
+body.theme-modern .submenu button {
+    color: #cdd6f4;
+}
+
+body.theme-modern .submenu button:hover {
+    background: rgba(137, 180, 250, 0.1);
+}
+
+/* Submenu divider */
+.submenu-divider {
+    height: 1px;
+    margin: 8px 0;
+    opacity: 0.3;
+}
+
+body.theme-matrix .submenu-divider {
+    background: rgba(0, 255, 65, 0.3);
+}
+
+body.theme-modern .submenu-divider {
+    background: rgba(137, 180, 250, 0.3);
+}
+
+/* Arrow keys grid layout */
+.arrow-keys-grid {
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+}
+
+.arrow-row {
+    display: flex;
+    gap: 4px;
+    justify-content: center;
+}
+
+.arrow-keys-grid button {
+    width: 40px !important;
+    height: 40px !important;
+    padding: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    font-size: 18px !important;
+    font-weight: bold !important;
+    border-radius: 6px !important;
+    min-width: 40px !important;
+}
+
+/* Navigation submenu specific styling */
+#navigation-menu {
+    min-width: 180px;
+}
+
+#navigation-menu .submenu-divider {
+    margin: 12px 8px 8px 8px;
+}
+
+/* Mobile responsive adjustments */
+@media (max-width: 768px) {
+    .submenu {
+        min-width: 160px;
+        font-size: 14px;
+    }
+
+    .arrow-keys-grid button {
+        width: 35px !important;
+        height: 35px !important;
+        font-size: 16px !important;
+    }
+
+    .submenu button {
+        padding: 10px 12px;
+        font-size: 13px;
+    }
 }
 
 @media (max-width: 768px) {

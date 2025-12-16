@@ -20,7 +20,42 @@
             <div class="controls">
                 <button id="ai-proxy-btn" onclick="toggleAIProxy()">🤖 AI Proxy: OFF</button>
                 <button id="ai-proxy-reset-btn" onclick="resetAIProxy()" style="display: none;">🔄 Reset AI</button>
-                <button id="ctrl-c-btn" onclick="sendCtrlC()">⌧ Ctrl+C</button>
+                <!-- Controls submenu -->
+                <div class="submenu-container">
+                    <button id="controls-btn" onclick="toggleControlsMenu()">⚙️ Controls</button>
+                    <div id="controls-menu" class="submenu" style="display: none;">
+                        <button onclick="copySelection()" title="Copy selected text">📄 Copy</button>
+                        <button onclick="pasteFromClipboard()" title="Paste from clipboard">📥 Paste</button>
+                        <button onclick="sendInterrupt()" title="Send interrupt signal (cancel command)">⌧
+                            Ctrl+C</button>
+                        <div class="submenu-divider"></div>
+                        <button onclick="sendKey('Tab')" title="Tab key">⇥ Tab</button>
+                        <button onclick="sendKey('Escape')" title="Escape key">⎋ Esc</button>
+                        <button onclick="sendKey('Enter')" title="Enter key">↵ Enter</button>
+                    </div>
+                </div>
+
+                <!-- Mobile Navigation submenu -->
+                <div class="submenu-container">
+                    <button id="navigation-btn" onclick="toggleNavigationMenu()">🧭 Navigation</button>
+                    <div id="navigation-menu" class="submenu" style="display: none;">
+                        <div class="arrow-keys-grid">
+                            <div class="arrow-row">
+                                <button onclick="sendArrowKey('ArrowUp')" title="Up arrow">↑</button>
+                            </div>
+                            <div class="arrow-row">
+                                <button onclick="sendArrowKey('ArrowLeft')" title="Left arrow">←</button>
+                                <button onclick="sendArrowKey('ArrowDown')" title="Down arrow">↓</button>
+                                <button onclick="sendArrowKey('ArrowRight')" title="Right arrow">→</button>
+                            </div>
+                        </div>
+                        <div class="submenu-divider"></div>
+                        <button onclick="sendKey('Home')" title="Home key">⇱ Home</button>
+                        <button onclick="sendKey('End')" title="End key">⇲ End</button>
+                        <button onclick="sendKey('PageUp')" title="Page Up">⇞ PgUp</button>
+                        <button onclick="sendKey('PageDown')" title="Page Down">⇟ PgDn</button>
+                    </div>
+                </div>
                 <button id="reset-btn" onclick="resetSession()">🔁 Reset Terminal</button>
                 <button id="session-btn" onclick="openSessionPicker()">📋 Sessions</button>
                 <button id="auth-btn" onclick="clearAuth()" style="display: none;">🔓 Clear Auth</button>
@@ -180,6 +215,7 @@
         let lastOutputTime = Date.now();
         let staleStateCheckInterval = null;
         let terminalRefreshAttempts = 0;
+        let recoveryMessageShown = false;
 
         function generateNewSessionId() {
             return 'web-' + crypto.getRandomValues(new Uint8Array(16))
@@ -272,6 +308,7 @@
             // Reset monitoring state
             lastOutputTime = Date.now();
             terminalRefreshAttempts = 0;
+            recoveryMessageShown = false;
 
             // Check for stale state every 5 seconds for more responsive detection
             staleStateCheckInterval = setInterval(() => {
@@ -286,6 +323,10 @@
                 if (timeSinceLastOutput > 20000 && isConnected && terminalRefreshAttempts < 3) {
                     console.log(`Detecting potential stale terminal state (${Math.round(timeSinceLastOutput / 1000)}s since last output), attempting refresh...`);
                     updateStatus(`Connected (refreshing terminal... ${terminalRefreshAttempts + 1}/3)`, 'warning');
+                    // Reset recovery message flag when starting a new stale state episode
+                    if (terminalRefreshAttempts === 0) {
+                        recoveryMessageShown = false;
+                    }
                     attemptTerminalRefresh();
                 }
 
@@ -377,8 +418,9 @@
                 const staleDuration = Math.round((lastOutputTime - previousTime) / 1000);
                 console.log(`Terminal recovered from stale state after ${staleDuration}s (${terminalRefreshAttempts} refresh attempts)`);
 
-                // Show brief recovery message to user
-                if (term && staleDuration > 10) {
+                // Show brief recovery message to user (only once per stale state episode and only for significant stale periods)
+                if (term && staleDuration > 15 && terminalRefreshAttempts >= 2 && !recoveryMessageShown) {
+                    recoveryMessageShown = true;
                     setTimeout(() => {
                         term.write('\r\n\x1b[32m[Terminal connection restored]\x1b[0m\r\n');
                     }, 100);
@@ -499,10 +541,13 @@
                 terminalPanel.style.width = '';
             }
 
-            // Trigger terminal resize to fit new layout
+            // Trigger terminal resize to fit new layout with multiple attempts
             if (term && fitAddon) {
                 setTimeout(() => {
                     fitAddon.fit();
+                    // Additional fit attempts to ensure proper sizing
+                    setTimeout(() => fitAddon.fit(), 50);
+                    setTimeout(() => fitAddon.fit(), 150);
                 }, 100);
             }
         }
@@ -897,7 +942,13 @@
 
             // Open terminal in container
             term.open(document.getElementById('terminal-container'));
-            fitAddon.fit();
+
+            // Ensure terminal fits properly after DOM is ready
+            setTimeout(() => {
+                fitAddon.fit();
+                // Force a second fit to ensure proper sizing
+                setTimeout(() => fitAddon.fit(), 100);
+            }, 50);
 
             // Send initial terminal size
             sendTerminalSize();
@@ -910,6 +961,7 @@
 
                     // Reset stale state monitoring when user types (but don't update output time)
                     terminalRefreshAttempts = 0;
+                    recoveryMessageShown = false; // Reset recovery message flag on user input
 
                     // Update status to show terminal is active
                     if (isConnected) {
@@ -1199,16 +1251,259 @@
             themeBtn.textContent = currentTheme === 'matrix' ? '🎨 Modern Lite' : '🎨 Matrix';
         }
 
-        function sendCtrlC() {
+        // Clipboard submenu functions
+        function toggleControlsMenu() {
+            const menu = document.getElementById('controls-menu');
+            const isVisible = menu.style.display !== 'none';
+
+            // Close all other submenus first
+            closeAllSubmenus();
+
+            if (!isVisible) {
+                menu.style.display = 'block';
+                // Close menu when clicking outside
+                setTimeout(() => {
+                    document.addEventListener('click', closeControlsMenuOnClickOutside);
+                }, 10);
+            }
+        }
+
+        function closeAllSubmenus() {
+            const submenus = document.querySelectorAll('.submenu');
+            submenus.forEach(menu => {
+                menu.style.display = 'none';
+            });
+            document.removeEventListener('click', closeControlsMenuOnClickOutside);
+        }
+
+        function closeControlsMenuOnClickOutside(event) {
+            const containers = document.querySelectorAll('.submenu-container');
+            let clickedInside = false;
+            containers.forEach(container => {
+                if (container.contains(event.target)) {
+                    clickedInside = true;
+                }
+            });
+            if (!clickedInside) {
+                closeAllSubmenus();
+            }
+        }
+
+        // Navigation submenu functions
+        function toggleNavigationMenu() {
+            const menu = document.getElementById('navigation-menu');
+            const isVisible = menu.style.display !== 'none';
+
+            // Close all other submenus first
+            closeAllSubmenus();
+
+            if (!isVisible) {
+                menu.style.display = 'block';
+                // Close menu when clicking outside
+                setTimeout(() => {
+                    document.addEventListener('click', closeControlsMenuOnClickOutside);
+                }, 10);
+            }
+        }
+
+        // Send special keys
+        function sendKey(keyName) {
+            if (!isConnected || !ws || ws.readyState !== WebSocket.OPEN) {
+                updateStatus('Not connected', 'error');
+                setTimeout(() => {
+                    if (isConnected) {
+                        updateStatus('Connected', 'success');
+                    }
+                }, 1500);
+                closeAllSubmenus();
+                return;
+            }
+
+            let keyCode;
+            switch (keyName) {
+                case 'Tab':
+                    keyCode = '\t';
+                    break;
+                case 'Enter':
+                    keyCode = '\r';
+                    break;
+                case 'Escape':
+                    keyCode = '\x1b';
+                    break;
+                case 'Home':
+                    keyCode = '\x1b[H';
+                    break;
+                case 'End':
+                    keyCode = '\x1b[F';
+                    break;
+                case 'PageUp':
+                    keyCode = '\x1b[5~';
+                    break;
+                case 'PageDown':
+                    keyCode = '\x1b[6~';
+                    break;
+                default:
+                    console.error('Unknown key:', keyName);
+                    closeAllSubmenus();
+                    return;
+            }
+
+            try {
+                ws.send(JSON.stringify({ input: keyCode }));
+                console.log(`Sent ${keyName} key`);
+
+                // Show brief feedback
+                updateStatus(`${keyName} sent`, 'success');
+                setTimeout(() => {
+                    if (isConnected) {
+                        updateStatus('Connected', 'success');
+                    }
+                }, 1000);
+            } catch (e) {
+                console.error(`Failed to send ${keyName}:`, e);
+            }
+            closeAllSubmenus();
+        }
+
+        // Send arrow keys
+        function sendArrowKey(direction) {
+            if (!isConnected || !ws || ws.readyState !== WebSocket.OPEN) {
+                updateStatus('Not connected', 'error');
+                setTimeout(() => {
+                    if (isConnected) {
+                        updateStatus('Connected', 'success');
+                    }
+                }, 1500);
+                closeAllSubmenus();
+                return;
+            }
+
+            let keyCode;
+            let displayName;
+            switch (direction) {
+                case 'ArrowUp':
+                    keyCode = '\x1b[A';
+                    displayName = 'Up';
+                    break;
+                case 'ArrowDown':
+                    keyCode = '\x1b[B';
+                    displayName = 'Down';
+                    break;
+                case 'ArrowRight':
+                    keyCode = '\x1b[C';
+                    displayName = 'Right';
+                    break;
+                case 'ArrowLeft':
+                    keyCode = '\x1b[D';
+                    displayName = 'Left';
+                    break;
+                default:
+                    console.error('Unknown arrow direction:', direction);
+                    closeAllSubmenus();
+                    return;
+            }
+
+            try {
+                ws.send(JSON.stringify({ input: keyCode }));
+                console.log(`Sent ${displayName} arrow key`);
+
+                // Show brief feedback for arrow keys
+                updateStatus(`${displayName} arrow`, 'success');
+                setTimeout(() => {
+                    if (isConnected) {
+                        updateStatus('Connected', 'success');
+                    }
+                }, 800);
+            } catch (e) {
+                console.error(`Failed to send ${displayName} arrow:`, e);
+            }
+            closeAllSubmenus();
+        }
+
+        function copySelection() {
+            const selection = term.getSelection();
+            if (selection && selection.trim().length > 0) {
+                copyToClipboard(selection);
+                console.log('Copied selected text to clipboard:', selection.substring(0, 50) + '...');
+
+                // Show brief feedback
+                updateStatus('Copied to clipboard', 'success');
+                setTimeout(() => {
+                    if (isConnected) {
+                        updateStatus('Connected', 'success');
+                    }
+                }, 1500);
+            } else {
+                // Show feedback that there's nothing to copy
+                updateStatus('No text selected', 'warning');
+                setTimeout(() => {
+                    if (isConnected) {
+                        updateStatus('Connected', 'success');
+                    }
+                }, 1500);
+            }
+            closeAllSubmenus();
+        }
+
+        function sendInterrupt() {
             if (!isConnected) {
                 return;
             }
 
-            // Send Ctrl+C (ASCII 0x03)
+            // Send Ctrl+C interrupt signal
             try {
                 ws.send(JSON.stringify({ input: '\x03' }));
+                console.log('Sent Ctrl+C interrupt signal');
+                updateStatus('Interrupt sent', 'warning');
+                setTimeout(() => {
+                    if (isConnected) {
+                        updateStatus('Connected', 'success');
+                    }
+                }, 1500);
             } catch (e) {
                 console.error('Failed to send Ctrl+C');
+            }
+            closeAllSubmenus();
+        }
+
+        // Ctrl+C always sends interrupt signal (traditional terminal behavior)
+        function sendCtrlC() {
+            sendInterrupt();
+        }
+
+        function copyToClipboard(text) {
+            // Try modern clipboard API first
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(text).then(() => {
+                    console.log('Text copied to clipboard using modern API');
+                }).catch(err => {
+                    console.error('Failed to copy using modern API:', err);
+                    fallbackCopyToClipboard(text);
+                });
+            } else {
+                // Fallback for older browsers or non-secure contexts
+                fallbackCopyToClipboard(text);
+            }
+        }
+
+        function fallbackCopyToClipboard(text) {
+            // Create temporary textarea element
+            const textArea = document.createElement('textarea');
+            textArea.value = text;
+            textArea.style.position = 'fixed';
+            textArea.style.left = '-999999px';
+            textArea.style.top = '-999999px';
+            document.body.appendChild(textArea);
+
+            try {
+                textArea.focus();
+                textArea.select();
+                document.execCommand('copy');
+                console.log('Text copied to clipboard using fallback method');
+            } catch (err) {
+                console.error('Failed to copy to clipboard:', err);
+            } finally {
+                document.body.removeChild(textArea);
             }
         }
 
@@ -1264,6 +1559,102 @@
 
         // Update auth button visibility
         updateAuthButton();
+
+        // Add keyboard event handling for clipboard operations
+        document.addEventListener('keydown', (e) => {
+            // Handle Ctrl+C for interrupt (traditional terminal behavior)
+            if (e.ctrlKey && e.key === 'c') {
+                // Check if the terminal has focus or if we're in the terminal area
+                const terminalContainer = document.getElementById('terminal-container');
+                const isTerminalFocused = terminalContainer.contains(document.activeElement) ||
+                    document.activeElement === document.body ||
+                    document.activeElement === terminalContainer;
+
+                // Only intercept in terminal context - let normal copy work in modals/inputs
+                if (isTerminalFocused && !isInputElement(document.activeElement)) {
+                    e.preventDefault(); // Prevent default browser copy behavior
+                    sendCtrlC(); // Always send interrupt signal
+                }
+            }
+
+            // Handle Ctrl+V for paste in terminal
+            if (e.ctrlKey && e.key === 'v') {
+                const terminalContainer = document.getElementById('terminal-container');
+                const isTerminalFocused = terminalContainer.contains(document.activeElement) ||
+                    document.activeElement === document.body ||
+                    document.activeElement === terminalContainer;
+
+                // Only intercept in terminal context
+                if (isTerminalFocused && !isInputElement(document.activeElement)) {
+                    e.preventDefault(); // Prevent default paste
+                    pasteFromClipboard();
+                }
+            }
+        });
+
+        function isInputElement(element) {
+            if (!element) return false;
+            const tagName = element.tagName.toLowerCase();
+            return tagName === 'input' || tagName === 'textarea' || element.contentEditable === 'true';
+        }
+
+        function pasteFromClipboard() {
+            if (!isConnected || !ws || ws.readyState !== WebSocket.OPEN) {
+                updateStatus('Not connected', 'error');
+                setTimeout(() => {
+                    if (isConnected) {
+                        updateStatus('Connected', 'success');
+                    }
+                }, 1500);
+                closeAllSubmenus();
+                return;
+            }
+
+            // Try modern clipboard API first
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.readText().then(text => {
+                    if (text && text.trim().length > 0) {
+                        // Send each character to maintain proper terminal behavior
+                        for (const char of text) {
+                            ws.send(JSON.stringify({ input: char }));
+                        }
+                        console.log('Pasted text from clipboard:', text.substring(0, 50) + '...');
+
+                        // Show feedback
+                        updateStatus(`Pasted ${text.length} characters`, 'success');
+                        setTimeout(() => {
+                            if (isConnected) {
+                                updateStatus('Connected', 'success');
+                            }
+                        }, 1500);
+                    } else {
+                        updateStatus('Clipboard is empty', 'warning');
+                        setTimeout(() => {
+                            if (isConnected) {
+                                updateStatus('Connected', 'success');
+                            }
+                        }, 1500);
+                    }
+                }).catch(err => {
+                    console.error('Failed to read from clipboard:', err);
+                    updateStatus('Clipboard access denied', 'error');
+                    setTimeout(() => {
+                        if (isConnected) {
+                            updateStatus('Connected', 'success');
+                        }
+                    }, 1500);
+                });
+            } else {
+                updateStatus('Clipboard API not available', 'warning');
+                setTimeout(() => {
+                    if (isConnected) {
+                        updateStatus('Connected', 'success');
+                    }
+                }, 1500);
+                console.log('Clipboard API not available - paste using right-click or browser menu');
+            }
+            closeAllSubmenus();
+        }
 
         // Initialize terminal and connect
         initTerminal();
