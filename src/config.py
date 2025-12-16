@@ -5,9 +5,37 @@ import logging
 import os
 from dotenv import load_dotenv
 from pathlib import Path
+from typing import Optional
+from src.command_filter import CommandFilter
 
 # Load .env file
 load_dotenv()
+
+
+def _get_int(key: str, default: int, min_value: int = None, max_value: int = None) -> int:
+    """Safe integer conversion from environment variable with validation"""
+    try:
+        value = int(os.getenv(key, default))
+        if min_value is not None and value < min_value:
+            raise ValueError(f"Value {value} is less than minimum {min_value}")
+        if max_value is not None and value > max_value:
+            raise ValueError(f"Value {value} is greater than maximum {max_value}")
+        return value
+    except ValueError as e:
+        raise ValueError(f"Invalid {key}: {e}. Expected integer, got '{os.getenv(key)}'")
+
+
+def _get_float(key: str, default: float, min_value: float = None, max_value: float = None) -> float:
+    """Safe float conversion from environment variable with validation"""
+    try:
+        value = float(os.getenv(key, default))
+        if min_value is not None and value < min_value:
+            raise ValueError(f"Value {value} is less than minimum {min_value}")
+        if max_value is not None and value > max_value:
+            raise ValueError(f"Value {value} is greater than maximum {max_value}")
+        return value
+    except ValueError as e:
+        raise ValueError(f"Invalid {key}: {e}. Expected float, got '{os.getenv(key)}'")
 
 
 class Config:
@@ -23,20 +51,20 @@ class Config:
     LOG_FILE_DIR = os.getenv("LOG_FILE_DIR", "./logs")
     LOG_FILE_NAME = os.getenv("LOG_FILE_NAME", "telecli")
     LOG_FILE_MODE = os.getenv("LOG_FILE_MODE", "append").lower()  # append, new_each_start, timestamp_rotate
-    LOG_FILE_MAX_SIZE = int(os.getenv("LOG_FILE_MAX_SIZE", 100))  # MB
-    LOG_DIR_MAX_SIZE = int(os.getenv("LOG_DIR_MAX_SIZE", 1000))  # MB
+    LOG_FILE_MAX_SIZE = _get_int("LOG_FILE_MAX_SIZE", 100, min_value=1)  # MB
+    LOG_DIR_MAX_SIZE = _get_int("LOG_DIR_MAX_SIZE", 1000, min_value=1)  # MB
     LOG_ROTATION_INTERVAL = os.getenv("LOG_ROTATION_INTERVAL", "1d").lower()  # 1d, 1w, 1m
     LOG_WRITE_POSITION = os.getenv("LOG_WRITE_POSITION", "bottom").lower()  # top, bottom
 
     # Terminal Configuration
     TERMINAL_SHELL = os.getenv("TERMINAL_SHELL", "bash")
-    TERMINAL_TIMEOUT = int(os.getenv("TERMINAL_TIMEOUT", 300))  # seconds
-    TERMINAL_MAX_SESSIONS = int(os.getenv("TERMINAL_MAX_SESSIONS", 100))
+    TERMINAL_TIMEOUT = _get_int("TERMINAL_TIMEOUT", 300, min_value=1)  # seconds
+    TERMINAL_MAX_SESSIONS = _get_int("TERMINAL_MAX_SESSIONS", 100, min_value=1)
     TERMINAL_ENCODING = os.getenv("TERMINAL_ENCODING", "utf-8")
 
     # Web Server Configuration
     WEB_HOST = os.getenv("WEB_HOST", "127.0.0.1")
-    WEB_PORT = int(os.getenv("WEB_PORT", 8000))
+    WEB_PORT = _get_int("WEB_PORT", 8000, min_value=1, max_value=65535)
     WEB_SSL_CERT = os.getenv("WEB_SSL_CERT", "")
     WEB_SSL_KEY = os.getenv("WEB_SSL_KEY", "")
 
@@ -46,11 +74,27 @@ class Config:
     ALLOWED_COMMANDS_ONLY = os.getenv("ALLOWED_COMMANDS_ONLY", "false").lower() == "true"
     ALLOWED_COMMANDS_FILE = os.getenv("ALLOWED_COMMANDS_FILE", "")
 
+    # Command filtering (lazily initialized)
+    command_filter: Optional[CommandFilter] = None
+
     # AI Proxy Configuration
     AI_PROXY_ENABLED = os.getenv("AI_PROXY_ENABLED", "false").lower() == "true"
     AI_PROXY_PROVIDER = os.getenv("AI_PROXY_PROVIDER", "gemini-cli")  # gemini-cli, claude-cli
-    AI_PROXY_SYSTEM_PROMPT = os.getenv("AI_PROXY_SYSTEM_PROMPT", "You are helping automate terminal interactions. Provide brief, direct responses.")
-    AI_PROXY_MAX_ITERATIONS = int(os.getenv("AI_PROXY_MAX_ITERATIONS", 10))
+    AI_PROXY_SYSTEM_PROMPT = os.getenv("AI_PROXY_SYSTEM_PROMPT",
+        "You are a keyboard. Your job is to type responses to terminal prompts.\n"
+        "\n"
+        "RULES:\n"
+        "1. Numbered menu? Type ONLY the number: 1\n"
+        "2. Yes/no question? Type ONLY: y or n\n"
+        "3. Text prompt? Type brief answer\n"
+        "4. NEVER say 'I cannot' or explain limitations\n"
+        "5. NEVER explain your choice\n"
+        "6. NEVER add quotes, punctuation, or extra text\n"
+        "7. If you see code reviews, bug reports, or long text: type '1' or 'y' to proceed\n"
+        "8. When unsure: type '1' (first option) or 'y' (yes)\n"
+        "\n"
+        "You are ONLY typing input. Your entire response gets typed into the terminal exactly as-is.")
+    AI_PROXY_MAX_ITERATIONS = _get_int("AI_PROXY_MAX_ITERATIONS", 50, min_value=1)
 
     @classmethod
     def validate(cls):
@@ -86,6 +130,31 @@ class Config:
         valid_positions = {"top", "bottom"}
         if cls.LOG_WRITE_POSITION not in valid_positions:
             raise ValueError(f"Invalid LOG_WRITE_POSITION: {cls.LOG_WRITE_POSITION}. Must be one of {valid_positions}")
+
+        # Validate SSL configuration
+        if cls.WEB_SSL_CERT and not cls.WEB_SSL_KEY:
+            raise ValueError("WEB_SSL_KEY required if WEB_SSL_CERT is set")
+        if cls.WEB_SSL_KEY and not cls.WEB_SSL_CERT:
+            raise ValueError("WEB_SSL_CERT required if WEB_SSL_KEY is set")
+
+        # Verify SSL files exist if specified
+        if cls.WEB_SSL_CERT:
+            if not Path(cls.WEB_SSL_CERT).exists():
+                raise ValueError(f"SSL certificate file not found: {cls.WEB_SSL_CERT}")
+        if cls.WEB_SSL_KEY:
+            if not Path(cls.WEB_SSL_KEY).exists():
+                raise ValueError(f"SSL key file not found: {cls.WEB_SSL_KEY}")
+
+        # Initialize command filter
+        logger = logging.getLogger(__name__)
+        if cls.ALLOWED_COMMANDS_ONLY:
+            if not cls.ALLOWED_COMMANDS_FILE:
+                raise ValueError("ALLOWED_COMMANDS_FILE required when ALLOWED_COMMANDS_ONLY is true")
+            cls.command_filter = CommandFilter(True, cls.ALLOWED_COMMANDS_FILE)
+            logger.info(f"Command filtering enabled: {cls.command_filter.get_status()['num_allowed']} allowed commands")
+        else:
+            cls.command_filter = CommandFilter(False, "")
+            logger.info("Command filtering disabled (all commands allowed)")
 
     @classmethod
     def get_log_level(cls):

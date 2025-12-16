@@ -204,13 +204,44 @@ Use systemd service or Docker for reliability.
 - Log cleanup is automatic, respects size limits
 - WebSocket handles many concurrent connections efficiently
 
-## Security
+## Security Features
+
+### Command Filtering
+
+Enable command whitelisting to prevent arbitrary command execution:
+
+```ini
+ALLOWED_COMMANDS_ONLY=true
+ALLOWED_COMMANDS_FILE=./examples/allowed_commands.txt
+```
+
+When enabled, only commands in the whitelist can be executed.
+See `examples/allowed_commands.txt` for the default list.
+
+### Authentication
+
+Require authentication tokens for terminal access:
+
+```ini
+AUTH_REQUIRED=true
+AUTH_TOKEN=your-strong-random-token
+```
+
+### SSL/TLS
+
+Enable HTTPS by providing certificate and key paths:
+
+```ini
+WEB_SSL_CERT=/path/to/cert.pem
+WEB_SSL_KEY=/path/to/key.pem
+```
+
+### General Security Notes
 
 - Session isolation per user
-- No input sanitization (shell handles it)
 - Logs may contain sensitive data
 - Use HTTPS in production
-- Consider authentication for production
+- Enable authentication for production deployments
 
 ## Future Enhancements
 

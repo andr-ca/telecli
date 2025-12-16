@@ -121,20 +121,29 @@ class TerminalSession:
         if not self.is_active or not self.process:
             raise RuntimeError("Session is not active")
 
+        # Check command filter (unless it's a special control character)
+        if text not in ('\x03', '\x04', '\r', '\n') and Config.command_filter:
+            if not Config.command_filter.is_allowed(text):
+                raise RuntimeError(f"Command not allowed: {text[:50]}")
+
         try:
+            # Run pexpect operations in executor to avoid blocking async loop
+            loop = asyncio.get_event_loop()
+            
             # Handle special control sequences
             if text == "\x03":  # Ctrl+C
-                self.process.sendintr()
+                await loop.run_in_executor(None, self.process.sendintr)
                 logger.info(f"Sent Ctrl+C to session {self.session_id}")
             elif text == "\x04":  # Ctrl+D
-                self.process.sendeof()
+                await loop.run_in_executor(None, self.process.sendeof)
                 logger.info(f"Sent Ctrl+D to session {self.session_id}")
             else:
                 if newline:
-                    self.process.sendline(text)
+                    await loop.run_in_executor(None, self.process.sendline, text)
+                    logger.info(f"Sent line to session {self.session_id}: {repr(text[:50])}")
                 else:
-                    self.process.send(text)
-                logger.debug(f"Sent input to session {self.session_id}: {text[:50]}...")
+                    await loop.run_in_executor(None, self.process.send, text)
+                    logger.debug(f"Sent input to session {self.session_id}: {text[:50]}...")
         except Exception as e:
             logger.error(f"Error sending input to session {self.session_id}: {e}")
             raise RuntimeError(f"Failed to send input: {str(e)}")
