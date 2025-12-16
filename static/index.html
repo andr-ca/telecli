@@ -15,17 +15,24 @@
 <body>
     <div class="container">
         <header>
-            <h1>🖥️ TeleCLI</h1>
-            <p>Web-based Terminal Interface</p>
-            <div class="controls">
-                <!-- Primary Controls Row -->
-                <div class="controls-row primary-controls">
-                    <button id="ai-proxy-btn" onclick="toggleAIProxy()">🤖 AI Proxy: OFF</button>
-                    <button id="ai-proxy-reset-btn" onclick="resetAIProxy()" style="display: none;">🔄 Reset AI</button>
+            <div class="header-compact">
+                <div class="title-section">
+                    <h1>🖥️ TeleCLI</h1>
+                    <div class="status-inline">
+                        <span id="status-compact">Connecting...</span>
+                        <span id="session-compact"></span>
+                    </div>
+                </div>
+
+                <div class="controls-compact">
+                    <button id="ai-proxy-btn" onclick="toggleAIProxy()">🤖</button>
+                    <button id="ai-proxy-reset-btn" onclick="resetAIProxy()" style="display: none;"
+                        title="Reset AI">🔄</button>
 
                     <!-- Mobile Controls Menu -->
                     <div class="submenu-container">
-                        <button id="mobile-controls-btn" onclick="toggleMobileControlsMenu()">📱 Mobile</button>
+                        <button id="mobile-controls-btn" onclick="toggleMobileControlsMenu()"
+                            title="Mobile Controls">📱</button>
                         <div id="mobile-controls-menu" class="submenu mobile-controls-submenu" style="display: none;">
                             <!-- Arrow Keys Section -->
                             <div class="mobile-section">
@@ -83,20 +90,17 @@
                             </div>
                         </div>
                     </div>
-                </div>
 
-                <!-- Secondary Controls Row -->
-                <div class="controls-row secondary-controls">
-                    <button id="session-btn" onclick="openSessionPicker()">📋 Sessions</button>
-                    <button id="reset-btn" onclick="resetSession()">🔁 Reset</button>
-                    <button id="llm-monitor-btn" onclick="toggleLLMMonitor()">🔍 Monitor</button>
-                    <button id="theme-btn" onclick="toggleTheme()">🎨 Theme</button>
-                    <button id="auth-btn" onclick="clearAuth()" style="display: none;">🔓 Auth</button>
+                    <button id="session-btn" onclick="openSessionPicker()" title="Sessions">📋</button>
+                    <button id="reset-btn" onclick="resetSession()" title="Reset Terminal">🔁</button>
+                    <button id="llm-monitor-btn" onclick="toggleLLMMonitor()" title="LLM Monitor">🔍</button>
+                    <button id="theme-btn" onclick="toggleTheme()" title="Toggle Theme">🎨</button>
+                    <button id="auth-btn" onclick="clearAuth()" style="display: none;" title="Clear Auth">🔓</button>
                 </div>
             </div>
-            <div id="proxy-status" style="margin-top: 10px; font-size: 14px; font-weight: bold; color: #b0b0b0;"></div>
-            <div id="session-status" style="margin-top: 5px; font-size: 12px; color: #b0b0b0;"></div>
-            <div id="auth-status" style="margin-top: 5px; font-size: 12px; color: #b0b0b0;"></div>
+
+            <!-- Status lines (hidden by default, shown when needed) -->
+            <div id="proxy-status" class="status-line" style="display: none;"></div>
         </header>
 
         <!-- AI Proxy Settings Modal -->
@@ -261,9 +265,13 @@
         }
 
         function updateSessionStatus() {
-            const sessionStatus = document.getElementById('session-status');
-            const shortId = clientId.length > 20 ? clientId.substring(0, 20) + '...' : clientId;
-            sessionStatus.textContent = `📋 Session: ${shortId}`;
+            const shortId = clientId.length > 12 ? clientId.substring(4, 12) + '...' : clientId.substring(4);
+
+            // Update compact header session display
+            const sessionCompact = document.getElementById('session-compact');
+            if (sessionCompact) {
+                sessionCompact.textContent = `📋 ${shortId}`;
+            }
         }
 
         function clearAuth() {
@@ -1247,6 +1255,8 @@
         }
 
         function updateProxyStatus(status) {
+            const proxyStatusEl = document.getElementById('proxy-status');
+
             if (status.enabled) {
                 const pct = Math.round((status.iterations / status.max_iterations) * 100);
                 let color = currentTheme === 'matrix' ? '#00ff41' : '#a6e3a1';  // Theme-aware colors
@@ -1257,11 +1267,12 @@
                 }
 
                 const statusText = `🤖 ${status.provider} | 🔄 ${status.iterations}/${status.max_iterations} (${pct}%)`;
-                document.getElementById('proxy-status').textContent = statusText;
-                document.getElementById('proxy-status').style.color = color;
+                proxyStatusEl.textContent = statusText;
+                proxyStatusEl.style.color = color;
+                proxyStatusEl.style.display = 'block';
                 document.getElementById('ai-proxy-reset-btn').style.display = 'inline-block';
             } else {
-                document.getElementById('proxy-status').textContent = '';
+                proxyStatusEl.style.display = 'none';
                 document.getElementById('ai-proxy-reset-btn').style.display = 'none';
             }
         }
@@ -1554,16 +1565,28 @@
 
 
         function updateStatus(text, type) {
+            // Update footer status (main status display)
             const status = document.getElementById('status');
-            status.textContent = text;
-            status.className = `status-${type}`;
+            if (status) {
+                status.textContent = text;
+                status.className = `status-${type}`;
+            }
+
+            // Update compact header status
+            const statusCompact = document.getElementById('status-compact');
+            if (statusCompact) {
+                statusCompact.textContent = text;
+                statusCompact.className = `status-${type}`;
+            }
 
             // Fetch stats
             fetch('/stats')
                 .then(r => r.json())
                 .then(data => {
                     const stats = document.getElementById('stats');
-                    stats.textContent = `Sessions: ${data.active_sessions}/${data.max_sessions}`;
+                    if (stats) {
+                        stats.textContent = `Sessions: ${data.active_sessions}/${data.max_sessions}`;
+                    }
                 })
                 .catch(e => { });
         }

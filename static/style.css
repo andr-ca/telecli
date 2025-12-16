@@ -94,76 +94,96 @@ body.theme-modern .container {
 }
 
 header {
-    padding: 20px;
-    text-align: center;
+    padding: 8px 12px;
     transition: all 0.3s ease;
+}
+
+.header-compact {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+}
+
+.title-section {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+}
+
+.title-section h1 {
+    margin: 0;
+    font-size: 1.2em;
+    white-space: nowrap;
+}
+
+.status-inline {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    font-size: 10px;
+    line-height: 1.2;
+    opacity: 0.8;
+}
+
+.controls-compact {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.controls-compact button {
+    padding: 6px 8px;
+    font-size: 14px;
+    min-width: 32px;
+    height: 32px;
+}
+
+.status-line {
+    margin-top: 4px;
+    font-size: 11px;
+    text-align: center;
+    padding: 2px 0;
 }
 
 /* Matrix theme header */
 body.theme-matrix header {
     background: rgba(0, 20, 0, 0.9);
-    border-bottom: 2px solid #00ff41;
-    box-shadow: 0 2px 10px rgba(0, 255, 65, 0.2);
+    border-bottom: 1px solid #00ff41;
+    box-shadow: 0 1px 5px rgba(0, 255, 65, 0.2);
 }
 
 body.theme-matrix header h1 {
-    font-size: 2em;
-    margin-bottom: 5px;
     color: #00ff41;
-    text-shadow: 0 0 10px rgba(0, 255, 65, 0.7);
-    letter-spacing: 2px;
+    text-shadow: 0 0 5px rgba(0, 255, 65, 0.5);
+    letter-spacing: 1px;
 }
 
-body.theme-matrix header p {
+body.theme-matrix .status-inline {
     color: #00aa33;
-    font-size: 0.9em;
 }
 
 /* Modern theme header */
 body.theme-modern header {
     background: rgba(49, 50, 68, 0.8);
-    border-bottom: 2px solid rgba(137, 180, 250, 0.3);
-    box-shadow: 0 2px 10px rgba(137, 180, 250, 0.1);
+    border-bottom: 1px solid rgba(137, 180, 250, 0.3);
+    box-shadow: 0 1px 5px rgba(137, 180, 250, 0.1);
 }
 
 body.theme-modern header h1 {
-    font-size: 2em;
-    margin-bottom: 5px;
     color: #cdd6f4;
-    text-shadow: 0 0 10px rgba(137, 180, 250, 0.3);
-    letter-spacing: 2px;
+    text-shadow: 0 0 5px rgba(137, 180, 250, 0.2);
+    letter-spacing: 1px;
     font-weight: 600;
 }
 
-body.theme-modern header p {
+body.theme-modern .status-inline {
     color: #a6adc8;
-    font-size: 0.9em;
 }
 
-.controls {
-    margin-top: 10px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
 
-.controls-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    justify-content: center;
-    align-items: center;
-}
-
-.primary-controls {
-    margin-bottom: 4px;
-}
-
-.secondary-controls button {
-    font-size: 12px;
-    padding: 6px 12px;
-    min-width: auto;
-}
 
 .terminal {
     flex: 1;
@@ -1063,34 +1083,31 @@ body.theme-modern .submenu-divider {
         border-radius: 0;
     }
 
-    body.theme-matrix header h1,
-    body.theme-modern header h1 {
-        font-size: 1.5em;
-        margin-bottom: 2px;
+    header {
+        padding: 6px 8px;
     }
 
-    header p {
-        font-size: 0.8em;
-        margin-bottom: 8px;
+    .header-compact {
+        gap: 8px;
     }
 
-    .controls {
-        margin-top: 8px;
+    .title-section h1 {
+        font-size: 1.1em;
     }
 
-    .controls-row {
-        gap: 6px;
+    .status-inline {
+        font-size: 9px;
     }
 
-    .primary-controls button {
-        font-size: 13px;
-        padding: 8px 12px;
+    .controls-compact {
+        gap: 3px;
     }
 
-    .secondary-controls button {
-        font-size: 11px;
-        padding: 5px 8px;
-        min-width: 60px;
+    .controls-compact button {
+        padding: 4px 6px;
+        font-size: 12px;
+        min-width: 28px;
+        height: 28px;
     }
 
     .mobile-controls-submenu {
@@ -1115,14 +1132,11 @@ body.theme-modern .submenu-divider {
     footer {
         flex-direction: column;
         gap: 4px;
-        padding: 8px 12px;
-        font-size: 11px;
+        padding: 6px 8px;
+        font-size: 10px;
     }
 
-    #proxy-status,
-    #session-status,
-    #auth-status {
-        font-size: 11px;
-        margin-top: 3px;
+    .status-line {
+        font-size: 10px;
     }
 }
