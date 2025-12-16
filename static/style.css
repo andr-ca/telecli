@@ -102,8 +102,9 @@ header {
 .header-compact {
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: flex-start;
     gap: 12px;
+    flex-wrap: wrap;
 }
 
 .title-section {
@@ -1091,7 +1092,14 @@ body.theme-modern .submenu-divider {
     }
 
     .header-compact {
-        gap: 6px;
+        flex-direction: column;
+        gap: 8px;
+        align-items: stretch;
+    }
+
+    .title-section {
+        justify-content: space-between;
+        width: 100%;
     }
 
     .title-section h1 {
@@ -1103,14 +1111,18 @@ body.theme-modern .submenu-divider {
     }
 
     .controls-compact {
-        gap: 6px;
+        gap: 4px;
+        justify-content: center;
+        width: 100%;
     }
 
     .controls-compact button {
-        padding: 8px 10px;
-        font-size: 12px;
-        height: 40px;
+        padding: 6px 8px;
+        font-size: 11px;
+        height: 36px;
         min-width: 44px;
+        flex: 1;
+        max-width: 80px;
         /* Apple's minimum touch target recommendation */
     }
 
@@ -1144,5 +1156,112 @@ body.theme-modern .submenu-divider {
 
     .status-line {
         font-size: 10px;
+    }
+}
+
+/* Extra small screens - very compact buttons */
+@media (max-width: 480px) {
+    .controls-compact button {
+        padding: 4px 6px;
+        font-size: 10px;
+        height: 32px;
+        min-width: 40px;
+        max-width: 70px;
+    }
+
+    .title-section h1 {
+        font-size: 1.1em;
+    }
+
+    header {
+        padding: 6px 8px;
+    }
+}
+
+/* Very small screens - icon-only buttons with tooltips */
+@media (max-width: 360px) {
+    .controls-compact button {
+        padding: 4px;
+        font-size: 14px;
+        height: 36px;
+        min-width: 36px;
+        max-width: 36px;
+        text-align: center;
+        overflow: hidden;
+        text-indent: -9999px;
+        position: relative;
+    }
+
+    /* Show icons using pseudo-elements */
+    #ai-proxy-btn::before {
+        content: '🤖';
+        text-indent: 0;
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+    }
+
+    #ai-proxy-reset-btn::before {
+        content: '🔄';
+        text-indent: 0;
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+    }
+
+    #mobile-controls-btn::before {
+        content: '📱';
+        text-indent: 0;
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+    }
+
+    #session-btn::before {
+        content: '📋';
+        text-indent: 0;
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+    }
+
+    #reset-btn::before {
+        content: '🔁';
+        text-indent: 0;
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+    }
+
+    #llm-monitor-btn::before {
+        content: '🔍';
+        text-indent: 0;
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+    }
+
+    #theme-btn::before {
+        content: '🎨';
+        text-indent: 0;
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+    }
+
+    #auth-btn::before {
+        content: '🔓';
+        text-indent: 0;
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
     }
 }
