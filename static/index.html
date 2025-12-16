@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -10,6 +11,7 @@
     <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
 </head>
+
 <body>
     <div class="container">
         <header>
@@ -20,49 +22,106 @@
                 <button id="ai-proxy-reset-btn" onclick="resetAIProxy()" style="display: none;">🔄 Reset AI</button>
                 <button id="ctrl-c-btn" onclick="sendCtrlC()">⌧ Ctrl+C</button>
                 <button id="reset-btn" onclick="resetSession()">🔁 Reset Terminal</button>
+                <button id="session-btn" onclick="openSessionPicker()">📋 Sessions</button>
+                <button id="auth-btn" onclick="clearAuth()" style="display: none;">🔓 Clear Auth</button>
+                <button id="llm-monitor-btn" onclick="toggleLLMMonitor()">🔍 LLM Monitor</button>
+                <button id="theme-btn" onclick="toggleTheme()">🎨 Theme</button>
             </div>
             <div id="proxy-status" style="margin-top: 10px; font-size: 14px; font-weight: bold; color: #b0b0b0;"></div>
+            <div id="session-status" style="margin-top: 5px; font-size: 12px; color: #b0b0b0;"></div>
             <div id="auth-status" style="margin-top: 5px; font-size: 12px; color: #b0b0b0;"></div>
         </header>
-        
+
         <!-- AI Proxy Settings Modal -->
-        <div id="proxy-settings-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 1000; align-items: center; justify-content: center;">
-            <div style="background: #2a2a2a; padding: 30px; border-radius: 10px; max-width: 600px; width: 90%;">
-                <h2 style="margin-top: 0; color: #fff;">🤖 AI Proxy Settings</h2>
-                
+        <div id="proxy-settings-modal" class="modal-backdrop"
+            style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1000; align-items: center; justify-content: center;">
+            <div class="modal-content" style="padding: 30px; max-width: 600px; width: 90%;">
+                <h2 style="margin-top: 0;">🤖 AI Proxy Settings</h2>
+
                 <div style="margin: 20px 0;">
-                    <label style="display: block; margin-bottom: 5px; color: #b0b0b0; font-weight: bold;">System Prompt:</label>
-                    <textarea id="system-prompt-input" 
-                              style="width: 100%; height: 120px; padding: 10px; background: #1a1a1a; color: #e0e0e0; border: 1px solid #667eea; border-radius: 5px; font-family: monospace; font-size: 13px; resize: vertical;"
-                              placeholder="You are helping automate terminal interactions..."></textarea>
-                    <small style="color: #7f8c8d;">This sets the AI's role and behavior. Be specific about what kind of responses you want.</small>
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">System
+                        Prompt:</label>
+                    <textarea id="system-prompt-input"
+                        style="width: 100%; height: 120px; padding: 10px; border-radius: 8px; font-family: monospace; font-size: 13px; resize: vertical; outline: none;"
+                        placeholder="You are helping automate terminal interactions..."></textarea>
+                    <small style="color: #7f8c8d;">This sets the AI's role and behavior. Be specific about what kind of
+                        responses you want.</small>
                 </div>
-                
+
                 <div style="margin: 20px 0;">
-                    <label style="display: block; margin-bottom: 5px; color: #b0b0b0; font-weight: bold;">Additional Context (Optional):</label>
-                    <textarea id="context-input" 
-                              style="width: 100%; height: 80px; padding: 10px; background: #1a1a1a; color: #e0e0e0; border: 1px solid #667eea; border-radius: 5px; font-family: monospace; font-size: 13px; resize: vertical;"
-                              placeholder="e.g., Working on a Python web app, focus on FastAPI patterns..."></textarea>
-                    <small style="color: #7f8c8d;">Add project-specific context that will be prepended to the system prompt.</small>
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">Additional
+                        Context (Optional):</label>
+                    <textarea id="context-input"
+                        style="width: 100%; height: 80px; padding: 10px; border-radius: 8px; font-family: monospace; font-size: 13px; resize: vertical; outline: none;"
+                        placeholder="e.g., Working on a Python web app, focus on FastAPI patterns..."></textarea>
+                    <small style="color: #7f8c8d;">Add project-specific context that will be prepended to the system
+                        prompt.</small>
                 </div>
-                
+
                 <div style="margin: 20px 0;">
-                    <label style="display: block; margin-bottom: 5px; color: #b0b0b0; font-weight: bold;">Provider:</label>
-                    <select id="provider-select" style="width: 100%; padding: 10px; background: #1a1a1a; color: #e0e0e0; border: 1px solid #667eea; border-radius: 5px; font-size: 14px;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">Provider:</label>
+                    <select id="provider-select"
+                        style="width: 100%; padding: 10px; border-radius: 8px; font-size: 14px; outline: none;">
                         <option value="gemini-cli">Gemini CLI</option>
                         <option value="claude-cli">Claude CLI</option>
+                        <option value="github-cli">GitHub CLI</option>
                     </select>
                 </div>
-                
+
                 <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 25px;">
-                    <button onclick="closeProxySettings()" style="padding: 10px 20px; background: #95a5a6; color: white; border: none; border-radius: 5px; cursor: pointer;">Cancel</button>
-                    <button onclick="applyProxySettings()" style="padding: 10px 20px; background: #27ae60; color: white; border: none; border-radius: 5px; cursor: pointer;">Enable AI Proxy</button>
+                    <button onclick="closeProxySettings()" class="modal-cancel-btn">Cancel</button>
+                    <button onclick="applyProxySettings()" class="modal-apply-btn">Enable AI Proxy</button>
                 </div>
             </div>
         </div>
-        
+
+        <!-- Session Picker Modal -->
+        <div id="session-picker-modal" class="modal-backdrop"
+            style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1000; align-items: center; justify-content: center;">
+            <div class="modal-content" style="padding: 30px; max-width: 500px; width: 90%;">
+                <h2 style="margin-top: 0;">📋 Session Manager</h2>
+
+                <div style="margin: 20px 0;">
+                    <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                        <button onclick="createNewSession()" class="modal-apply-btn" style="flex: 1;">🆕 New
+                            Session</button>
+                        <button onclick="refreshSessions()" style="flex: 0 0 auto; padding: 10px;">🔄</button>
+                    </div>
+
+                    <div id="sessions-list" style="max-height: 300px; overflow-y: auto;">
+                        <div style="text-align: center; color: #7f8c8d; padding: 20px;">
+                            Loading sessions...
+                        </div>
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 25px;">
+                    <button onclick="closeSessionPicker()" class="modal-cancel-btn">Close</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- LLM Monitor Subwindow -->
+        <div id="llm-monitor" class="llm-monitor" style="display: none;">
+            <div class="llm-monitor-header">
+                <h3>🔍 LLM Communication Monitor</h3>
+                <div class="llm-monitor-controls">
+                    <button onclick="exportLLMLog()" class="monitor-btn">💾 Export</button>
+                    <button onclick="clearLLMLog()" class="monitor-btn">🗑️ Clear</button>
+                    <button onclick="toggleLLMAutoScroll()" class="monitor-btn" id="autoscroll-btn">📜 Auto-scroll:
+                        ON</button>
+                    <button onclick="toggleLLMMonitor()" class="monitor-btn">✕</button>
+                </div>
+            </div>
+            <div class="llm-monitor-content" id="llm-monitor-content">
+                <div class="llm-monitor-placeholder">
+                    LLM communication will appear here when AI Proxy is active...
+                </div>
+            </div>
+        </div>
+
         <div class="terminal" id="terminal-container"></div>
-        
+
         <footer>
             <div id="status">Connecting...</div>
             <div id="stats"></div>
@@ -70,8 +129,7 @@
     </div>
 
     <script>
-        const clientId = 'web-' + crypto.getRandomValues(new Uint8Array(16))
-            .reduce((hex, byte) => hex + byte.toString(16).padStart(2, '0'), '');
+        let clientId = localStorage.getItem('terminal-session-id') || generateNewSessionId();
         let ws = null;
         let isConnected = false;
         let term = null;
@@ -80,45 +138,452 @@
         let systemPrompt = "";  // Will be loaded from backend
         let additionalContext = "";
         let defaultProvider = "gemini-cli";  // Will be loaded from backend
+        let currentTheme = localStorage.getItem('terminal-theme') || 'matrix';
+        let llmMonitorVisible = false;
+        let llmAutoScroll = true;
+        let llmEntryCounter = 0;
+
+        function generateNewSessionId() {
+            return 'web-' + crypto.getRandomValues(new Uint8Array(16))
+                .reduce((hex, byte) => hex + byte.toString(16).padStart(2, '0'), '');
+        }
+
+        function saveSessionId(sessionId) {
+            localStorage.setItem('terminal-session-id', sessionId);
+            clientId = sessionId;
+            updateSessionStatus();
+        }
+
+        function updateSessionStatus() {
+            const sessionStatus = document.getElementById('session-status');
+            const shortId = clientId.length > 20 ? clientId.substring(0, 20) + '...' : clientId;
+            sessionStatus.textContent = `📋 Session: ${shortId}`;
+        }
+
+        function clearAuth() {
+            localStorage.removeItem('terminal-auth-token');
+            document.getElementById('auth-btn').style.display = 'none';
+            updateStatus('Authentication cleared', 'warning');
+        }
+
+        function updateAuthButton() {
+            const authBtn = document.getElementById('auth-btn');
+            const hasToken = localStorage.getItem('terminal-auth-token');
+            authBtn.style.display = hasToken ? 'inline-block' : 'none';
+        }
+
+        function toggleLLMMonitor() {
+            const monitor = document.getElementById('llm-monitor');
+            const btn = document.getElementById('llm-monitor-btn');
+
+            llmMonitorVisible = !llmMonitorVisible;
+            monitor.style.display = llmMonitorVisible ? 'block' : 'none';
+            btn.textContent = llmMonitorVisible ? '🔍 Hide Monitor' : '🔍 LLM Monitor';
+        }
+
+        function clearLLMLog() {
+            const content = document.getElementById('llm-monitor-content');
+            content.innerHTML = '<div class="llm-monitor-placeholder">LLM communication cleared...</div>';
+            llmEntryCounter = 0;
+        }
+
+        function toggleLLMAutoScroll() {
+            llmAutoScroll = !llmAutoScroll;
+            const btn = document.getElementById('autoscroll-btn');
+            btn.textContent = `📜 Auto-scroll: ${llmAutoScroll ? 'ON' : 'OFF'}`;
+        }
+
+        function addLLMEntry(type, data) {
+            const content = document.getElementById('llm-monitor-content');
+
+            // Remove placeholder if it exists
+            const placeholder = content.querySelector('.llm-monitor-placeholder');
+            if (placeholder) {
+                placeholder.remove();
+            }
+
+            llmEntryCounter++;
+            const timestamp = new Date().toLocaleTimeString();
+
+            let entry;
+            if (type === 'request') {
+                entry = createLLMRequestEntry(data, timestamp);
+            } else if (type === 'response') {
+                entry = createLLMResponseEntry(data, timestamp);
+            } else if (type === 'parsed_response') {
+                entry = createLLMParsedResponseEntry(data, timestamp);
+            } else if (type === 'error') {
+                entry = createLLMErrorEntry(data, timestamp);
+            } else if (type === 'status') {
+                entry = createLLMStatusEntry(data, timestamp);
+            }
+
+            if (entry) {
+                content.appendChild(entry);
+
+                // Auto-scroll to bottom if enabled
+                if (llmAutoScroll) {
+                    content.scrollTop = content.scrollHeight;
+                }
+
+                // Limit entries to prevent memory issues
+                const entries = content.querySelectorAll('.llm-entry');
+                if (entries.length > 50) {
+                    entries[0].remove();
+                }
+            }
+        }
+
+        function createLLMRequestEntry(data, timestamp) {
+            const entry = document.createElement('div');
+            entry.className = 'llm-entry request';
+            entry.innerHTML = `
+                <div class="llm-entry-header">
+                    <span>📤 REQUEST to ${data.provider || 'LLM'}</span>
+                    <span class="llm-entry-timestamp">${timestamp}</span>
+                </div>
+                <div class="llm-entry-content">${escapeHtml(data.prompt || data.content || 'No content')}</div>
+                <div class="llm-entry-stats">
+                    <span>Length: ${(data.prompt || data.content || '').length} chars</span>
+                    <span>Iteration: ${data.iteration || '?'}</span>
+                </div>
+            `;
+            return entry;
+        }
+
+        function createLLMResponseEntry(data, timestamp) {
+            const entry = document.createElement('div');
+            entry.className = 'llm-entry response';
+            entry.innerHTML = `
+                <div class="llm-entry-header">
+                    <span>📥 RESPONSE from ${data.provider || 'LLM'}</span>
+                    <span class="llm-entry-timestamp">${timestamp}</span>
+                </div>
+                <div class="llm-entry-content">${escapeHtml(data.response || data.content || 'No content')}</div>
+                <div class="llm-entry-stats">
+                    <span>Length: ${(data.response || data.content || '').length} chars</span>
+                    <span>Duration: ${data.duration || '?'}ms</span>
+                </div>
+            `;
+            return entry;
+        }
+
+        function createLLMErrorEntry(data, timestamp) {
+            const entry = document.createElement('div');
+            entry.className = 'llm-entry error';
+            entry.innerHTML = `
+                <div class="llm-entry-header">
+                    <span>❌ ERROR from ${data.provider || 'LLM'}</span>
+                    <span class="llm-entry-timestamp">${timestamp}</span>
+                </div>
+                <div class="llm-entry-content">${escapeHtml(data.error || data.content || 'Unknown error')}</div>
+                <div class="llm-entry-stats">
+                    <span>Code: ${data.code || 'Unknown'}</span>
+                </div>
+            `;
+            return entry;
+        }
+
+        function createLLMStatusEntry(data, timestamp) {
+            const entry = document.createElement('div');
+            entry.className = 'llm-entry status';
+            entry.innerHTML = `
+                <div class="llm-entry-header">
+                    <span>ℹ️ ${data.title || 'STATUS'}</span>
+                    <span class="llm-entry-timestamp">${timestamp}</span>
+                </div>
+                <div class="llm-entry-content">${escapeHtml(data.message || data.content || 'No message')}</div>
+            `;
+            return entry;
+        }
+
+        function createLLMParsedResponseEntry(data, timestamp) {
+            const entry = document.createElement('div');
+            entry.className = 'llm-entry parsed-response';
+
+            // Color code confidence levels
+            let confidenceClass = 'confidence-low';
+            if (data.confidence >= 0.7) confidenceClass = 'confidence-high';
+            else if (data.confidence >= 0.4) confidenceClass = 'confidence-medium';
+
+            entry.innerHTML = `
+                <div class="llm-entry-header">
+                    <span>🎯 PARSED RESPONSE from ${data.provider || 'LLM'}</span>
+                    <span class="llm-entry-timestamp">${timestamp}</span>
+                </div>
+                <div class="llm-entry-content">
+                    <div class="parsed-response-details">
+                        <div class="parsed-field">
+                            <strong>Action:</strong> <span class="action-type">${escapeHtml(data.action || 'unknown')}</span>
+                        </div>
+                        <div class="parsed-field">
+                            <strong>Input:</strong> <code>${escapeHtml(data.input || '')}</code>
+                        </div>
+                        <div class="parsed-field">
+                            <strong>Confidence:</strong> 
+                            <span class="confidence-score ${confidenceClass}">${(data.confidence || 0).toFixed(2)}</span>
+                        </div>
+                        <div class="parsed-field">
+                            <strong>Reasoning:</strong> ${escapeHtml(data.reasoning || 'No reasoning provided')}
+                        </div>
+                    </div>
+                </div>
+                <div class="llm-entry-stats">
+                    <span>Format: ${data.format || 'unknown'}</span>
+                    <span>Input Length: ${(data.input || '').length} chars</span>
+                </div>
+            `;
+            return entry;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function exportLLMLog() {
+            const content = document.getElementById('llm-monitor-content');
+            const entries = content.querySelectorAll('.llm-entry');
+
+            if (entries.length === 0) {
+                alert('No LLM interactions to export');
+                return;
+            }
+
+            let exportText = `TeleCLI LLM Monitor Export\nGenerated: ${new Date().toISOString()}\n${'='.repeat(50)}\n\n`;
+
+            entries.forEach((entry, index) => {
+                const header = entry.querySelector('.llm-entry-header');
+                const content = entry.querySelector('.llm-entry-content');
+                const stats = entry.querySelector('.llm-entry-stats');
+
+                exportText += `Entry ${index + 1}:\n`;
+                exportText += `${header.textContent.trim()}\n`;
+                exportText += `${'-'.repeat(40)}\n`;
+                exportText += `${content.textContent.trim()}\n`;
+                if (stats) {
+                    exportText += `Stats: ${stats.textContent.trim()}\n`;
+                }
+                exportText += '\n';
+            });
+
+            // Create and download file
+            const blob = new Blob([exportText], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `telecli-llm-log-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.txt`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        async function openSessionPicker() {
+            document.getElementById('session-picker-modal').style.display = 'flex';
+            await refreshSessions();
+        }
+
+        function closeSessionPicker() {
+            document.getElementById('session-picker-modal').style.display = 'none';
+        }
+
+        async function refreshSessions() {
+            try {
+                const response = await fetch('/api/sessions');
+                const data = await response.json();
+                const sessionsList = document.getElementById('sessions-list');
+
+                if (data.sessions.length === 0) {
+                    sessionsList.innerHTML = `
+                        <div style="text-align: center; color: #7f8c8d; padding: 20px;">
+                            No active sessions found
+                        </div>
+                    `;
+                    return;
+                }
+
+                sessionsList.innerHTML = data.sessions.map(session => `
+                    <div class="session-item" style="
+                        padding: 12px; 
+                        margin: 8px 0; 
+                        border-radius: 8px; 
+                        cursor: pointer;
+                        transition: all 0.2s ease;
+                        ${session.id === clientId ? 'border: 2px solid; opacity: 0.8;' : 'border: 1px solid rgba(255,255,255,0.1);'}
+                    " onclick="selectSession('${session.id}')">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <div style="font-weight: bold; margin-bottom: 4px;">
+                                    ${session.id === clientId ? '🔗 ' : ''}${session.id}
+                                </div>
+                                <div style="font-size: 12px; opacity: 0.7;">
+                                    Shell: ${session.shell} | Active: ${session.is_active ? '✅' : '❌'}
+                                </div>
+                            </div>
+                            <button onclick="event.stopPropagation(); deleteSession('${session.id}')" 
+                                    style="background: rgba(255,0,0,0.2); border: 1px solid rgba(255,0,0,0.4); 
+                                           border-radius: 4px; padding: 4px 8px; color: #ff6b6b; font-size: 12px;">
+                                🗑️
+                            </button>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error('Failed to fetch sessions:', error);
+                document.getElementById('sessions-list').innerHTML = `
+                    <div style="text-align: center; color: #ff6b6b; padding: 20px;">
+                        Failed to load sessions
+                    </div>
+                `;
+            }
+        }
+
+        function selectSession(sessionId) {
+            if (sessionId === clientId) {
+                closeSessionPicker();
+                return;
+            }
+
+            // Disconnect current session
+            if (ws) {
+                ws.close();
+            }
+
+            // Switch to selected session
+            saveSessionId(sessionId);
+
+            // Clear terminal and reconnect
+            if (term) {
+                term.clear();
+            }
+
+            setTimeout(async () => {
+                await connectWebSocket();
+                closeSessionPicker();
+            }, 100);
+        }
+
+        function createNewSession() {
+            const newSessionId = generateNewSessionId();
+            selectSession(newSessionId);
+        }
+
+        async function deleteSession(sessionId) {
+            if (!confirm(`Delete session ${sessionId}?`)) {
+                return;
+            }
+
+            try {
+                await fetch(`/reset/${sessionId}`, { method: 'POST' });
+
+                // If we deleted our current session, create a new one
+                if (sessionId === clientId) {
+                    createNewSession();
+                } else {
+                    await refreshSessions();
+                }
+            } catch (error) {
+                console.error('Failed to delete session:', error);
+                alert('Failed to delete session');
+            }
+        }
+
+        function getTerminalTheme() {
+            const themes = {
+                matrix: {
+                    background: '#000000',
+                    foreground: '#00ff41',
+                    cursor: '#00ff41',
+                    cursorAccent: '#00ff41',
+                    selection: 'rgba(0, 255, 65, 0.3)',
+                    black: '#000000',
+                    red: '#ff0000',
+                    green: '#00ff41',
+                    yellow: '#ffff00',
+                    blue: '#0066ff',
+                    magenta: '#ff00ff',
+                    cyan: '#00ffff',
+                    white: '#ffffff',
+                    brightBlack: '#333333',
+                    brightRed: '#ff3333',
+                    brightGreen: '#33ff33',
+                    brightYellow: '#ffff33',
+                    brightBlue: '#3366ff',
+                    brightMagenta: '#ff33ff',
+                    brightCyan: '#33ffff',
+                    brightWhite: '#ffffff'
+                },
+                modern: {
+                    background: '#1e1e2e',
+                    foreground: '#cdd6f4',
+                    cursor: '#f5e0dc',
+                    cursorAccent: '#1e1e2e',
+                    selection: 'rgba(245, 224, 220, 0.3)',
+                    black: '#45475a',
+                    red: '#f38ba8',
+                    green: '#a6e3a1',
+                    yellow: '#f9e2af',
+                    blue: '#89b4fa',
+                    magenta: '#f5c2e7',
+                    cyan: '#94e2d5',
+                    white: '#bac2de',
+                    brightBlack: '#585b70',
+                    brightRed: '#f38ba8',
+                    brightGreen: '#a6e3a1',
+                    brightYellow: '#f9e2af',
+                    brightBlue: '#89b4fa',
+                    brightMagenta: '#f5c2e7',
+                    brightCyan: '#94e2d5',
+                    brightWhite: '#a6adc8'
+                }
+            };
+            return themes[currentTheme] || themes.matrix;
+        }
 
         function initTerminal() {
-            // Create xterm.js terminal
+            // Create xterm.js terminal with performance optimizations
             term = new Terminal({
                 cursorBlink: true,
                 fontSize: 14,
                 fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-                theme: {
-                    background: '#1e1e1e',
-                    foreground: '#ffffff',
-                    cursor: '#ffffff'
-                },
+                theme: getTerminalTheme(),
                 rows: 30,
                 cols: 100,
                 scrollback: 10000,
-                // Prevent auto-scroll to top
+                // Performance optimizations
                 convertEol: true,
                 scrollOnUserInput: false,  // Don't scroll when user types
-                fastScrollModifier: 'shift'
+                fastScrollModifier: 'shift',
+                rendererType: 'canvas',  // Use canvas renderer for better performance
+                allowTransparency: false,  // Disable transparency for performance
+                windowsMode: false,  // Disable Windows-specific optimizations on other platforms
+                macOptionIsMeta: true,  // Better key handling
+                rightClickSelectsWord: false,  // Disable right-click selection for performance
+                disableStdin: false,
+                screenReaderMode: false  // Disable screen reader mode for performance
             });
-            
+
             // Add fit addon for responsive sizing
             fitAddon = new FitAddon.FitAddon();
             term.loadAddon(fitAddon);
-            
+
             // Open terminal in container
             term.open(document.getElementById('terminal-container'));
             fitAddon.fit();
-            
+
             // Send initial terminal size
             sendTerminalSize();
-            
-            // Handle terminal input
+
+            // Handle terminal input with optimized sending
             term.onData((data) => {
-                if (isConnected && ws) {
+                if (isConnected && ws && ws.readyState === WebSocket.OPEN) {
+                    // Always use JSON.stringify to properly escape all characters
                     ws.send(JSON.stringify({ input: data }));
                 }
             });
-            
+
             // Handle window resize
             window.addEventListener('resize', () => {
                 if (fitAddon) {
@@ -132,70 +597,102 @@
             if (term && ws && isConnected) {
                 const rows = term.rows;
                 const cols = term.cols;
-                ws.send(JSON.stringify({ 
-                    resize: { rows: rows, cols: cols } 
+                ws.send(JSON.stringify({
+                    resize: { rows: rows, cols: cols }
                 }));
             }
         }
 
-        function getWebSocketUrl() {
+        async function getWebSocketUrl() {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            let token = '';
+            const url = `${protocol}//${window.location.host}/ws/${clientId}`;
 
-            // Try to get token from localStorage
-            token = localStorage.getItem('terminal-auth-token');
+            // Check if authentication is required
+            try {
+                const response = await fetch('/api/auth/required');
+                const authData = await response.json();
+
+                if (!authData.auth_required) {
+                    return url; // No authentication needed
+                }
+            } catch (e) {
+                console.debug('Could not check auth requirement, assuming no auth needed');
+                return url;
+            }
+
+            // Authentication is required, get token
+            let token = localStorage.getItem('terminal-auth-token');
             if (!token) {
-                token = prompt("Enter authentication token:") || "";
-                if (token) {
-                    localStorage.setItem('terminal-auth-token', token);
+                const userToken = prompt("Enter authentication token (or leave empty to skip):") || "";
+                if (userToken) {
+                    localStorage.setItem('terminal-auth-token', userToken);
+                    token = userToken;
+                } else {
+                    // User chose to skip authentication, try without token
+                    console.log('Attempting connection without authentication token');
+                    return url;
                 }
             }
 
-            const url = `${protocol}//${window.location.host}/ws/${clientId}`;
             return token ? `${url}?token=${encodeURIComponent(token)}` : url;
         }
 
-        function connectWebSocket() {
+        async function connectWebSocket() {
             try {
-                ws = new WebSocket(getWebSocketUrl());
-                
+                const wsUrl = await getWebSocketUrl();
+                ws = new WebSocket(wsUrl);
+
                 ws.onopen = () => {
                     isConnected = true;
                     updateStatus('Connected', 'success');
                 };
-                
+
                 ws.onmessage = (event) => {
                     try {
                         const data = JSON.parse(event.data);
                         if (data.output && term) {
-                            // Save scroll position to prevent auto-scroll
-                            const wasAtBottom = term.buffer.active.baseY + term.rows >= term.buffer.active.length;
-                            
-                            // Write output directly to xterm
+                            // Write output immediately without scroll position checks for better performance
                             term.write(data.output);
-                            
-                            // Only scroll to bottom if user was already at bottom
-                            if (wasAtBottom) {
-                                term.scrollToBottom();
+
+                            // Only check scroll position for larger chunks to reduce overhead
+                            if (data.output.length > 100) {
+                                const wasAtBottom = term.buffer.active.baseY + term.rows >= term.buffer.active.length;
+                                if (wasAtBottom) {
+                                    term.scrollToBottom();
+                                }
                             }
                         } else if (data.error) {
                             term.write('\r\n\x1b[31mError: ' + data.error + '\x1b[0m\r\n');
                         } else if (data.proxy_status) {
                             updateProxyStatus(data.proxy_status);
+                        } else if (data.llm_monitor) {
+                            // Handle LLM monitoring data
+                            if (llmMonitorVisible) {
+                                addLLMEntry(data.llm_monitor.type, data.llm_monitor.data);
+                            }
                         }
                     } catch (e) {
                         console.error('Error parsing message:', e);
                     }
                 };
-                
+
                 ws.onerror = (error) => {
                     updateStatus('Error', 'error');
                 };
-                
-                ws.onclose = () => {
+
+                ws.onclose = (event) => {
                     isConnected = false;
-                    updateStatus('Disconnected - Reconnecting...', 'warning');
-                    setTimeout(connectWebSocket, 3000);
+
+                    // Check if it's an authentication error
+                    if (event.code === 1008) {
+                        updateStatus('Authentication failed', 'error');
+                        // Clear stored token and ask for new one
+                        localStorage.removeItem('terminal-auth-token');
+                        setTimeout(async () => await connectWebSocket(), 1000);
+                    } else {
+                        updateStatus('Disconnected - Reconnecting...', 'warning');
+                        setTimeout(async () => await connectWebSocket(), 3000);
+                    }
                 };
             } catch (e) {
                 updateStatus('Connection failed', 'error');
@@ -206,7 +703,7 @@
             if (!isConnected) {
                 return;
             }
-            
+
             if (aiProxyEnabled) {
                 // Disable AI proxy
                 aiProxyEnabled = false;
@@ -215,20 +712,28 @@
                 document.getElementById('ai-proxy-btn').textContent = '🤖 AI Proxy: OFF';
                 document.getElementById('ai-proxy-reset-btn').style.display = 'none';
                 document.getElementById('proxy-status').textContent = '';
+
+                // Add status entry to monitor
+                if (llmMonitorVisible) {
+                    addLLMEntry('status', {
+                        title: 'AI Proxy Disabled',
+                        message: 'AI automation has been turned off'
+                    });
+                }
             } else {
                 // Show settings modal
                 openProxySettings();
             }
         }
-        
+
         function resetAIProxy() {
             if (!isConnected || !aiProxyEnabled) {
                 return;
             }
-            
+
             // Disable and re-enable to reset iteration counter
             ws.send(JSON.stringify({ proxy: { disable: true } }));
-            
+
             // Re-enable after a brief delay
             setTimeout(() => {
                 // Build full prompt with context
@@ -236,17 +741,17 @@
                 if (additionalContext) {
                     fullPrompt = `Context: ${additionalContext}\n\n${systemPrompt}`;
                 }
-                
-                ws.send(JSON.stringify({ 
-                    proxy: { 
-                        enable: true, 
+
+                ws.send(JSON.stringify({
+                    proxy: {
+                        enable: true,
                         provider: defaultProvider || 'gemini-cli',
                         system_prompt: fullPrompt
-                    } 
+                    }
                 }));
             }, 100);
         }
-        
+
         async function openProxySettings() {
             // Load config from backend if not already loaded
             if (!systemPrompt) {
@@ -260,55 +765,64 @@
                     systemPrompt = 'You are helping automate terminal interactions.';
                 }
             }
-            
+
             // Pre-fill with current values
             document.getElementById('system-prompt-input').value = systemPrompt;
             document.getElementById('context-input').value = additionalContext;
             document.getElementById('provider-select').value = defaultProvider;
             document.getElementById('proxy-settings-modal').style.display = 'flex';
         }
-        
+
         function closeProxySettings() {
             document.getElementById('proxy-settings-modal').style.display = 'none';
         }
-        
+
         function applyProxySettings() {
             // Get values from form
             systemPrompt = document.getElementById('system-prompt-input').value.trim();
             additionalContext = document.getElementById('context-input').value.trim();
             const provider = document.getElementById('provider-select').value;
-            
+
             // Build full prompt with context
             let fullPrompt = systemPrompt;
             if (additionalContext) {
                 fullPrompt = `Context: ${additionalContext}\n\n${systemPrompt}`;
             }
-            
+
             // Enable AI proxy with custom prompt
             aiProxyEnabled = true;
-            ws.send(JSON.stringify({ 
-                proxy: { 
-                    enable: true, 
+            ws.send(JSON.stringify({
+                proxy: {
+                    enable: true,
                     provider: provider,
                     system_prompt: fullPrompt
-                } 
+                }
             }));
-            
-                document.getElementById('ai-proxy-btn').textContent = '🤖 AI Proxy: ON';
-                document.getElementById('ai-proxy-reset-btn').style.display = 'inline-block';
+
+            document.getElementById('ai-proxy-btn').textContent = '🤖 AI Proxy: ON';
+            document.getElementById('ai-proxy-reset-btn').style.display = 'inline-block';
+
+            // Add status entry to monitor
+            if (llmMonitorVisible) {
+                addLLMEntry('status', {
+                    title: 'AI Proxy Enabled',
+                    message: `Provider: ${provider}\nSystem Prompt: ${fullPrompt.substring(0, 100)}${fullPrompt.length > 100 ? '...' : ''}`
+                });
+            }
+
             closeProxySettings();
         }
 
         function updateProxyStatus(status) {
             if (status.enabled) {
                 const pct = Math.round((status.iterations / status.max_iterations) * 100);
-                let color = '#00ff41';  // Matrix green
+                let color = currentTheme === 'matrix' ? '#00ff41' : '#a6e3a1';  // Theme-aware colors
                 if (pct > 80) {
-                    color = '#ffff00';  // Yellow warning
+                    color = currentTheme === 'matrix' ? '#ffff00' : '#f9e2af';  // Yellow warning
                 } else if (pct >= 100) {
-                    color = '#ff0000';  // Red at limit
+                    color = currentTheme === 'matrix' ? '#ff0000' : '#f38ba8';  // Red at limit
                 }
-                
+
                 const statusText = `🤖 ${status.provider} | 🔄 ${status.iterations}/${status.max_iterations} (${pct}%)`;
                 document.getElementById('proxy-status').textContent = statusText;
                 document.getElementById('proxy-status').style.color = color;
@@ -319,11 +833,28 @@
             }
         }
 
+        function toggleTheme() {
+            currentTheme = currentTheme === 'matrix' ? 'modern' : 'matrix';
+            localStorage.setItem('terminal-theme', currentTheme);
+
+            // Apply theme to body
+            document.body.className = `theme-${currentTheme}`;
+
+            // Update terminal theme
+            if (term) {
+                term.options.theme = getTerminalTheme();
+            }
+
+            // Update button text
+            const themeBtn = document.getElementById('theme-btn');
+            themeBtn.textContent = currentTheme === 'matrix' ? '🎨 Modern Lite' : '🎨 Matrix';
+        }
+
         function sendCtrlC() {
             if (!isConnected) {
                 return;
             }
-            
+
             // Send Ctrl+C (ASCII 0x03)
             try {
                 ws.send(JSON.stringify({ input: '\x03' }));
@@ -339,7 +870,7 @@
                     .then(data => {
                         if (term) term.clear();
                         ws.close();
-                        setTimeout(() => connectWebSocket(), 500);
+                        setTimeout(async () => await connectWebSocket(), 500);
                     })
                     .catch(e => console.error('Failed to reset'));
             }
@@ -350,7 +881,7 @@
             const status = document.getElementById('status');
             status.textContent = text;
             status.className = `status-${type}`;
-            
+
             // Fetch stats
             fetch('/stats')
                 .then(r => r.json())
@@ -358,7 +889,7 @@
                     const stats = document.getElementById('stats');
                     stats.textContent = `Sessions: ${data.active_sessions}/${data.max_sessions}`;
                 })
-                .catch(e => {});
+                .catch(e => { });
         }
 
         // Check if auth is required
@@ -371,9 +902,24 @@
             })
             .catch(e => console.debug('Auth check not available'));
 
+        // Initialize theme and terminal
+        document.body.className = `theme-${currentTheme}`;
+        document.getElementById('theme-btn').textContent = currentTheme === 'matrix' ? '🎨 Modern Lite' : '🎨 Matrix';
+
+        // Save session ID if it's new
+        if (!localStorage.getItem('terminal-session-id')) {
+            saveSessionId(clientId);
+        } else {
+            updateSessionStatus();
+        }
+
+        // Update auth button visibility
+        updateAuthButton();
+
         // Initialize terminal and connect
         initTerminal();
         connectWebSocket();
     </script>
 </body>
+
 </html>
