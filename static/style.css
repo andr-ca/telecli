@@ -100,15 +100,16 @@ header {
 
 .header-compact {
     display: flex;
-    flex-direction: column;
-    gap: 8px;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
 }
 
 .title-section {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: 12px;
+    flex: 1;
 }
 
 .title-section h1 {
@@ -120,7 +121,7 @@ header {
 .status-inline {
     display: flex;
     flex-direction: column;
-    align-items: flex-end;
+    align-items: flex-start;
     font-size: 11px;
     line-height: 1.2;
     opacity: 0.8;
@@ -129,9 +130,9 @@ header {
 .controls-compact {
     display: flex;
     align-items: center;
-    justify-content: center;
-    gap: 8px;
+    gap: 6px;
     flex-wrap: wrap;
+    flex-shrink: 0;
 }
 
 .controls-compact button {
@@ -139,22 +140,6 @@ header {
     font-size: 13px;
     min-width: auto;
     height: 36px;
-    white-space: nowrap;
-}
-
-.secondary-controls {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    flex-wrap: wrap;
-}
-
-.secondary-controls button {
-    padding: 6px 10px;
-    font-size: 12px;
-    min-width: auto;
-    height: 32px;
     white-space: nowrap;
 }
 
@@ -1128,17 +1113,7 @@ body.theme-modern .submenu-divider {
         /* Apple's minimum touch target recommendation */
     }
 
-    .secondary-controls {
-        gap: 4px;
-    }
 
-    .secondary-controls button {
-        padding: 6px 8px;
-        font-size: 11px;
-        height: 36px;
-        min-width: 44px;
-        /* Apple's minimum touch target recommendation */
-    }
 
     .mobile-controls-submenu {
         min-width: 200px;
