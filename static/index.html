@@ -1151,6 +1151,8 @@
             return token ? `${url}?token=${encodeURIComponent(token)}` : url;
         }
 
+        let isConnecting = false; // Prevent concurrent connection attempts
+
         async function connectWebSocket() {
             // Don't create new connection if already connected
             if (ws && ws.readyState === WebSocket.OPEN) {
@@ -1163,6 +1165,14 @@
                 console.log('WebSocket already connecting, skipping');
                 return;
             }
+
+            // Prevent concurrent connection attempts (race condition during async getWebSocketUrl)
+            if (isConnecting) {
+                console.log('Connection already in progress, skipping');
+                return;
+            }
+
+            isConnecting = true;
 
             try {
                 // Close any existing connection cleanly
@@ -1179,6 +1189,7 @@
                 ws = new WebSocket(wsUrl);
 
                 ws.onopen = () => {
+                    isConnecting = false; // Connection established
                     isConnected = true;
                     updateStatus('Connected', 'success');
                     console.log('WebSocket connected');
@@ -1220,6 +1231,7 @@
                 };
 
                 ws.onclose = (event) => {
+                    isConnecting = false; // Connection closed
                     isConnected = false;
                     console.log(`WebSocket closed: code=${event.code}, reason=${event.reason}`);
 
@@ -1239,6 +1251,7 @@
                     }
                 };
             } catch (e) {
+                isConnecting = false; // Connection failed
                 console.error('Connection failed:', e);
                 updateStatus('Connection failed', 'error');
             }
