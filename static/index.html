@@ -1190,6 +1190,13 @@
 
         async function connectWebSocket() {
             try {
+                // Close any existing connection before creating a new one
+                if (ws) {
+                    console.log('Closing existing WebSocket connection before reconnecting');
+                    ws.close();
+                    ws = null;
+                }
+
                 const wsUrl = await getWebSocketUrl();
                 ws = new WebSocket(wsUrl);
 
