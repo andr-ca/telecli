@@ -1033,12 +1033,15 @@
             // Ensure terminal fits properly after DOM is ready
             setTimeout(() => {
                 fitAddon.fit();
+                console.log(`Initial fit: ${term.rows}x${term.cols}`);
                 // Force a second fit to ensure proper sizing
-                setTimeout(() => fitAddon.fit(), 100);
+                setTimeout(() => {
+                    fitAddon.fit();
+                    console.log(`Second fit: ${term.rows}x${term.cols}`);
+                    // Send terminal size after fit is complete (if connected)
+                    sendTerminalSize();
+                }, 100);
             }, 50);
-
-            // Send initial terminal size
-            sendTerminalSize();
 
             // Handle terminal input with optimized sending
             term.onData((data) => {
@@ -1070,9 +1073,12 @@
             if (term && ws && isConnected) {
                 const rows = term.rows;
                 const cols = term.cols;
+                console.log(`Sending terminal size: ${rows}x${cols}`);
                 ws.send(JSON.stringify({
                     resize: { rows: rows, cols: cols }
                 }));
+            } else {
+                console.log(`Cannot send terminal size: term=${!!term}, ws=${!!ws}, isConnected=${isConnected}`);
             }
         }
 
@@ -1123,9 +1129,20 @@
                     isConnected = true;
                     updateStatus('Connected', 'success');
 
-                    // Send terminal size immediately after connection
-                    sendTerminalSize();
-                    console.log('Sent terminal size after connection');
+                    // Fit terminal and send size after connection
+                    // Use setTimeout to ensure DOM is fully ready
+                    if (fitAddon) {
+                        fitAddon.fit();
+                        // Small delay to ensure fit calculation is complete
+                        setTimeout(() => {
+                            fitAddon.fit(); // Second fit for accuracy
+                            sendTerminalSize();
+                            console.log(`Sent terminal size after connection: ${term.rows}x${term.cols}`);
+                        }, 100);
+                    } else {
+                        sendTerminalSize();
+                        console.log('Sent terminal size (no fitAddon)');
+                    }
 
                     // Start stale state monitoring when connection is established
                     startStaleStateMonitoring();
