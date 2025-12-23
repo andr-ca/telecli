@@ -1,6 +1,6 @@
-# Antigravity/Gemini Rules for TeleCLI
+# Cursor Rules for TeleCLI
 
-These rules govern the development and behavior of the Antigravity/Gemini AI agent within the TeleCLI project. They are derived from project documentation, including WARP.md, KIRO_INSTRUCTIONS.md, and Copilot instructions.
+These rules govern how the Cursor IDE and its AI assistant should be used and configured within the TeleCLI project. They are derived from project documentation, including WARP.md, KIRO_INSTRUCTIONS.md, and Copilot instructions.
 
 ## 1. Core Development Principles
 - **Follow Specifications**: Adhere strictly to the architecture and rules defined in `WARP.md` and `docs/session-fixes/`.
