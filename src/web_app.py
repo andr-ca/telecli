@@ -42,23 +42,9 @@ app = FastAPI(
 # Add middleware to handle reverse proxy headers
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
 
-# Add custom middleware to handle potential request issues
-class RequestLoggingMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        try:
-            # Log incoming requests for debugging
-            logger.debug(f"Incoming request: {request.method} {request.url}")
-            logger.debug(f"Headers: {dict(request.headers)}")
-            
-            response = await call_next(request)
-            return response
-        except Exception as e:
-            logger.error(f"Request processing error: {e}")
-            logger.error(f"Request URL: {request.url}")
-            logger.error(f"Request method: {request.method}")
-            raise
+# Skip RequestLoggingMiddleware as BaseHTTPMiddleware can interfere with WebSocket upgrades 
+# in certain FastAPI/Starlette versions. Standard uvicorn access logs are sufficient.
 
-app.add_middleware(RequestLoggingMiddleware)
 
 # Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
