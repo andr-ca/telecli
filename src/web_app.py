@@ -11,7 +11,6 @@ from fastapi.responses import FileResponse
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from contextlib import asynccontextmanager
 from starlette.websockets import WebSocketDisconnect
-from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import ValidationError
 from src.session_manager import SessionManager
 from src.config import Config
@@ -45,6 +44,10 @@ async def lifespan(app: FastAPI):
     """Lifespan context manager"""
     global session_manager
     session_manager = SessionManager()
+    
+    # Pass monitor entry function to session manager
+    session_manager.set_monitor_callback(add_llm_monitor_entry)
+    
     logger.info("Web app started")
     yield
     await session_manager.close_all()
@@ -171,6 +174,7 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
 
     connection_active = True
     
+    # Monitoring callback to send LLM info live to the UI
     async def llm_monitor_callback(entry_type: str, data: dict):
         nonlocal connection_active
         if not connection_active:
@@ -185,11 +189,12 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
         except Exception:
             connection_active = False
     
+    # Hook into AI proxy if it exists
     ai_proxy = session_manager.get_ai_proxy(client_id)
     if ai_proxy:
         ai_proxy.set_monitor_callback(llm_monitor_callback)
     
-    # Session reconnection logic
+    # Session reconnection logic: refresh terminal state
     if client_id in session_manager.sessions:
         try:
             session = await session_manager.get_session(client_id)
@@ -200,7 +205,7 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
             await asyncio.sleep(0.1)
             await session.send_input("\x0C", newline=False)
         except Exception as e:
-            logger.warning(f"Could not refresh existing session {client_id}: {e}")
+            logger.warning(f"Could not refresh terminal for {client_id}: {e}")
 
     async def handle_input():
         nonlocal connection_active
@@ -212,14 +217,17 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
                     input_text = message.get("input", "")
                     if input_text:
                         await session_manager.send_input(client_id, input_text, newline=False, from_ai=False)
+                        # Notify proxy of user interaction
                         ai_proxy = session_manager.get_ai_proxy(client_id)
                         if ai_proxy and ai_proxy.is_enabled():
                             ai_proxy.notify_user_input(input_text)
                     
                     if "resize" in message:
-                        rows = message["resize"].get("rows", 24)
-                        cols = message["resize"].get("cols", 80)
-                        await session_manager.resize_session(client_id, rows, cols)
+                        await session_manager.resize_session(
+                            client_id, 
+                            message["resize"].get("rows", 24), 
+                            message["resize"].get("cols", 80)
+                        )
                     
                     if "proxy" in message:
                         proxy_cmd = message["proxy"]
@@ -239,8 +247,6 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
                             await websocket.send_json({"proxy_status": {"enabled": False}})
                 except json.JSONDecodeError:
                     pass
-                except Exception as e:
-                    logger.error(f"Error processing message for {client_id}: {e}")
         except WebSocketDisconnect:
             connection_active = False
         except Exception as e:
@@ -254,14 +260,17 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
                 if not connection_active:
                     break
                 if chunk:
+                    # Feed chunk to AI proxy for pattern detection
                     ai_proxy = session_manager.get_ai_proxy(client_id)
                     if ai_proxy and ai_proxy.is_enabled():
                         ai_proxy.add_output(chunk)
+                    # Forward to browser
                     await websocket.send_json({"output": chunk})
         except Exception:
             connection_active = False
     
     async def ai_proxy_checker():
+        """Periodic check for prompt detection while AI proxy is enabled"""
         try:
             while connection_active:
                 await asyncio.sleep(0.5)
@@ -286,14 +295,14 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
         await session_manager.close_session(client_id)
 
 
+# Explicit route for /telecli without trailing slash to satisfy browsers/proxies
 @app.get("/telecli")
 async def get_telecli_root_no_slash():
     """Serve the web UI for /telecli without trailing slash"""
     return FileResponse("static/index.html")
 
-# Include router at both root and /telecli prefix
+# Include router at both root and /telecli prefix for flexible access
 app.include_router(router)
-
 app.include_router(router, prefix="/telecli")
 
 # Mount static files (at both locations to be safe)
