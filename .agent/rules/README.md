@@ -5,14 +5,18 @@ This directory contains the canonical rules for AI development agents working on
 ## Structure
 
 - **`base.md`** - The single source of truth for all AI agent development rules
-- **`gemini.md`** - Symlink to `base.md` (for Antigravity/Gemini compatibility)
+- **`gemini.md`** - Symlink to `base.md` (relative symlink within this directory)
 
-## Tool-Specific Rules
+## Tool-Specific Rules (Symlinks)
 
-The following files in the repository root are symlinks to `.agent/rules/base.md`:
+All of the following files are symlinks that point to `.agent/rules/base.md`:
 
+**In repository root:**
 - **`.geminirules`** - Used by Antigravity/Gemini AI agents
 - **`.cursorrules`** - Used by Cursor IDE's AI assistant
+
+**In `.agent/rules/` directory:**
+- **`gemini.md`** - Alternative location for Gemini compatibility
 
 ## Why Symlinks?
 
