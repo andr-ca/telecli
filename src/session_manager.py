@@ -372,8 +372,7 @@ class SessionManager:
     ) -> bool:
         """Enable AI proxy for a session."""
         if session_id not in self.session_records and session_id not in self.sessions:
-            logger.error("Session %s not found", session_id)
-            return False
+            self._ensure_record(session_id, backend="telecli")
 
         provider_name = provider_name or Config.AI_PROXY_PROVIDER
         llm_provider = LLMProviderFactory.create(provider_name)
@@ -389,7 +388,7 @@ class SessionManager:
             llm_provider=llm_provider,
             system_prompt=prompt,
             max_iterations=Config.AI_PROXY_MAX_ITERATIONS,
-            fallback_providers=fallback_names,
+            fallback_provider_names=fallback_names,
         )
 
         async def send_input(text: str):

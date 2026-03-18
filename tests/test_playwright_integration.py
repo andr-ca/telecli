@@ -3,13 +3,11 @@ Playwright integration tests for TeleCLI
 Tests the web UI and WebSocket functionality with real browser
 """
 import pytest
-import socket
-import threading
-import time
-import uvicorn
 from playwright.sync_api import Error as PlaywrightError, sync_playwright
 import os
 import json
+import time
+from tests.playwright_server import ManagedUvicornServer, reserve_free_port
 
 pytestmark = pytest.mark.playwright
 
@@ -18,74 +16,34 @@ WEB_HOST = "127.0.0.1"
 WEB_PORT = None
 BASE_URL = None
 
-# Server thread
-server_thread = None
-server_ready = False
+managed_server = None
 
 
-def reserve_free_port() -> int:
-    """Allocate a free local TCP port for the temporary test server."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind((WEB_HOST, 0))
-        return sock.getsockname()[1]
-
-
-def run_server():
-    """Run the server in a thread"""
-    global server_ready
-    try:
-        os.environ["AUTH_REQUIRED"] = "false"
-        from src.config import Config
-        Config.AUTH_REQUIRED = False
-        config = uvicorn.Config(
-            "src.web_app:app",
-            host=WEB_HOST,
-            port=WEB_PORT,
-            log_level="warning",
-            access_log=False,
-        )
-        server = uvicorn.Server(config)
-        server_ready = True
-        import asyncio
-        asyncio.run(server.serve())
-    except Exception as e:
-        print(f"Server error: {e}")
-        server_ready = False
+def configure_test_server():
+    """Apply test-only config before starting the embedded web app."""
+    os.environ["AUTH_REQUIRED"] = "false"
+    from src.config import Config
+    Config.AUTH_REQUIRED = False
 
 
 @pytest.fixture(scope="session", autouse=True)
 def start_test_server():
     """Start the server for testing"""
-    global server_thread, server_ready, WEB_PORT, BASE_URL
+    global managed_server, WEB_PORT, BASE_URL
 
-    WEB_PORT = reserve_free_port()
+    WEB_PORT = reserve_free_port(WEB_HOST)
     BASE_URL = f"http://{WEB_HOST}:{WEB_PORT}"
-
-    # Start server in background thread
-    server_thread = threading.Thread(target=run_server, daemon=True)
-    server_thread.start()
-
-    # Wait for server to be ready
-    max_attempts = 50
-    for attempt in range(max_attempts):
-        if server_ready:
-            time.sleep(0.5)  # Give it extra time to fully start
-            break
-        time.sleep(0.1)
-
-    # Verify server is actually listening
-    for attempt in range(20):
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                result = sock.connect_ex((WEB_HOST, WEB_PORT))
-                if result == 0:
-                    time.sleep(0.3)
-                    break
-        except Exception:
-            pass
-        time.sleep(0.1)
+    managed_server = ManagedUvicornServer(
+        "src.web_app:app",
+        WEB_HOST,
+        WEB_PORT,
+        configure=configure_test_server,
+    )
+    managed_server.start()
 
     yield
+
+    managed_server.stop()
 
 
 @pytest.fixture

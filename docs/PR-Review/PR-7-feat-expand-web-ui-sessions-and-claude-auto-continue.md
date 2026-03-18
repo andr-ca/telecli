@@ -157,3 +157,54 @@ Fixed. `list_sessions()` now includes inactive named TeleCLI records as well, an
 ```text
 Fixed. Removed the stray tool-output footer from `README.md`.
 ```
+
+## Additional Review
+
+Reviewer follow-up:
+
+- Review ID: `3969928293`
+
+All 2 additional inline comments were technically valid for this branch.
+
+Additional actions taken:
+
+- fixed the fresh-session AI proxy enable race by creating a TeleCLI session record before enabling the proxy
+- fixed the `AIProxy(...)` constructor call on that same path to use `fallback_provider_names`
+- refactored the Playwright uvicorn lifecycle into a shared managed helper with explicit teardown
+- applied the same server-shutdown fix to both Playwright-backed browser suites
+
+Additional verification:
+
+```bash
+pytest tests/test_session_manager.py tests/test_websocket.py tests/test_playwright_server.py -q
+pytest tests/test_websocket_playwright.py tests/test_playwright_integration.py -q
+```
+
+Observed results:
+
+- `30 passed`
+- `37 passed`
+
+### 11. `enable_ai_proxy()` can reject a fresh session before runtime creation
+
+- Comment ID: `2955369882`
+- URL: https://github.com/malandr/telecli/pull/7#discussion_r2955369882
+- Evaluation: valid
+- Action: if a session id is unknown, `enable_ai_proxy()` now creates the missing TeleCLI record instead of returning `False`; while fixing that path, I also corrected the `AIProxy(...)` keyword from `fallback_providers` to `fallback_provider_names`; added a regression in `tests/test_session_manager.py`
+- PR response:
+
+```text
+Fixed. `enable_ai_proxy()` now ensures a TeleCLI record exists for a fresh session id before enabling the proxy, so the WebSocket enable path no longer races runtime startup. I also fixed the `AIProxy(...)` constructor keyword on that same path and added a regression in `tests/test_session_manager.py`.
+```
+
+### 12. `tests/test_websocket_playwright.py` server fixture never shuts uvicorn down
+
+- Comment ID: `2955369901`
+- URL: https://github.com/malandr/telecli/pull/7#discussion_r2955369901
+- Evaluation: valid
+- Action: moved the embedded uvicorn lifecycle into `tests/playwright_server.py`, added teardown that sets `server.should_exit` and joins the thread, and switched both `tests/test_websocket_playwright.py` and `tests/test_playwright_integration.py` to use that helper; added a unit test in `tests/test_playwright_server.py`
+- PR response:
+
+```text
+Fixed. The embedded uvicorn lifecycle now lives in a shared managed helper that keeps the `uvicorn.Server` reference, sets `should_exit` during teardown, and joins the thread. I switched both Playwright-backed suites to use it and added a unit test for the shutdown path.
+```

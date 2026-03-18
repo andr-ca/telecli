@@ -172,6 +172,32 @@ async def test_session_manager_detach_tmux_session_keeps_imported_entry(tmp_path
     assert session.session_id not in manager.sessions
 
 
+@pytest.mark.asyncio
+async def test_enable_ai_proxy_creates_missing_session_record(monkeypatch):
+    """AI proxy enable should succeed before the runtime session has been created."""
+    manager = SessionManager()
+
+    class FakeProvider:
+        def get_name(self):
+            return "fake-provider"
+
+    monkeypatch.setattr(
+        "src.session_manager.LLMProviderFactory.create",
+        lambda provider_name: FakeProvider(),
+    )
+    monkeypatch.setattr(
+        "src.session_manager.LLMProviderFactory.get_available_providers",
+        lambda: [("fake-provider", FakeProvider()), ("fallback-provider", FakeProvider())],
+    )
+
+    enabled = await manager.enable_ai_proxy("fresh-session", provider_name="fake-provider")
+
+    assert enabled is True
+    assert "fresh-session" in manager.session_records
+    assert "fresh-session" in manager.ai_proxies
+    assert manager.sessions == {}
+
+
 # TODO: Add tests for:
 # - test_session_manager_max_sessions_limit()
 # - test_session_manager_send_command()
