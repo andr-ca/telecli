@@ -179,5 +179,4 @@ Check logs in `./logs/` directory. Log level can be adjusted in `.env`.
 
 ## License
 
-[Add license information here]</content>
-<parameter name="filePath">/home/andrey/projects/telecli/README.md
+[Add license information here]

@@ -61,6 +61,7 @@ class Config:
     TERMINAL_TIMEOUT = _get_int("TERMINAL_TIMEOUT", 300, min_value=1)  # seconds
     TERMINAL_MAX_SESSIONS = _get_int("TERMINAL_MAX_SESSIONS", 100, min_value=1)
     TERMINAL_ENCODING = os.getenv("TERMINAL_ENCODING", "utf-8")
+    SESSION_REGISTRY_PATH = os.getenv("SESSION_REGISTRY_PATH", "output/session-registry.json")
 
     # Web Server Configuration
     WEB_HOST = os.getenv("WEB_HOST", "127.0.0.1")

@@ -2,7 +2,7 @@
 WebSocket message models for validation and type safety
 """
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ResizePayload(BaseModel):
@@ -28,10 +28,9 @@ class ClaudeCodeCommand(BaseModel):
 
 class WebSocketMessage(BaseModel):
     """WebSocket message from client"""
+    model_config = ConfigDict(extra="allow")
+
     input: Optional[str] = None
     resize: Optional[ResizePayload] = None
     proxy: Optional[ProxyCommand] = None
     claude_code: Optional[ClaudeCodeCommand] = None
-
-    class Config:
-        extra = "allow"  # Allow additional fields for forward compatibility

@@ -11,10 +11,9 @@ from fastapi.responses import FileResponse
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from contextlib import asynccontextmanager
 from starlette.websockets import WebSocketDisconnect
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 from src.session_manager import SessionManager
 from src.config import Config
-from src.ws_models import WebSocketMessage
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +23,13 @@ session_manager: SessionManager = None
 # Global LLM monitor data
 llm_monitor_data = []
 MAX_MONITOR_ENTRIES = 100
+
+
+async def send_json_locked(websocket: WebSocket, payload: dict, send_lock: asyncio.Lock) -> bool:
+    """Serialize websocket JSON sends to avoid overlapping writes."""
+    async with send_lock:
+        await websocket.send_json(payload)
+    return True
 
 def add_llm_monitor_entry(entry_type: str, data: dict):
     """Add entry to LLM monitor data"""
@@ -243,14 +249,14 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
     logger.info(f"WebSocket connection established for client {client_id}")
 
     connection_active = True
+    send_lock = asyncio.Lock()
 
     async def safe_send_json(payload: dict) -> bool:
         nonlocal connection_active
         if not connection_active:
             return False
         try:
-            await websocket.send_json(payload)
-            return True
+            return await send_json_locked(websocket, payload, send_lock)
         except Exception:
             connection_active = False
             return False

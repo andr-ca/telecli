@@ -282,5 +282,4 @@ Primary Provider → Success: Return Result
 - **Microservices**: Separate services for web, bot, AI
 - **Database Integration**: Persistent session storage
 - **Real-time Collaboration**: Multi-user sessions
-- **Container Orchestration**: Kubernetes deployment</content>
-<parameter name="filePath">/home/andrey/projects/telecli/docs/design.md
+- **Container Orchestration**: Kubernetes deployment

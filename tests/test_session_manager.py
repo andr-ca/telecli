@@ -109,6 +109,32 @@ def test_session_manager_create_tmux_session_persists_named_entry(tmp_path, monk
     assert saved["sessions"][0]["tmux_session_name"] == "pairing-shell"
 
 
+def test_session_manager_uses_configured_registry_path(monkeypatch, tmp_path):
+    """Default registry storage should come from Config when no explicit path is passed."""
+    configured_path = tmp_path / "custom-registry.json"
+    monkeypatch.setattr("src.session_manager.Config.SESSION_REGISTRY_PATH", str(configured_path))
+
+    manager = SessionManager()
+
+    assert manager.registry_path == configured_path
+
+
+def test_session_manager_lists_inactive_named_telecli_entries():
+    """Named TeleCLI entries should appear in the session list before their runtime is started."""
+    manager = SessionManager()
+
+    created = manager.create_session_entry("Inbox Shell")
+    sessions = manager.list_sessions()
+
+    assert any(
+        session["id"] == created["id"]
+        and session["name"] == "Inbox Shell"
+        and session["backend"] == "telecli"
+        and session["is_active"] is False
+        for session in sessions
+    )
+
+
 @pytest.mark.asyncio
 async def test_session_manager_detach_tmux_session_keeps_imported_entry(tmp_path, monkeypatch):
     """Detaching a tmux session should stop its runtime but keep the imported record."""

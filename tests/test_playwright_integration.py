@@ -3,21 +3,31 @@ Playwright integration tests for TeleCLI
 Tests the web UI and WebSocket functionality with real browser
 """
 import pytest
+import socket
 import threading
 import time
 import uvicorn
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import Error as PlaywrightError, sync_playwright
 import os
 import json
 
+pytestmark = pytest.mark.playwright
+
 # Test configuration
 WEB_HOST = "127.0.0.1"
-WEB_PORT = 9012
-BASE_URL = f"http://{WEB_HOST}:{WEB_PORT}"
+WEB_PORT = None
+BASE_URL = None
 
 # Server thread
 server_thread = None
 server_ready = False
+
+
+def reserve_free_port() -> int:
+    """Allocate a free local TCP port for the temporary test server."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind((WEB_HOST, 0))
+        return sock.getsockname()[1]
 
 
 def run_server():
@@ -46,20 +56,10 @@ def run_server():
 @pytest.fixture(scope="session", autouse=True)
 def start_test_server():
     """Start the server for testing"""
-    global server_thread, server_ready
+    global server_thread, server_ready, WEB_PORT, BASE_URL
 
-    # Skip if server is already running
-    try:
-        import socket
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        result = sock.connect_ex((WEB_HOST, WEB_PORT))
-        sock.close()
-        if result == 0:
-            # Server already running
-            yield
-            return
-    except Exception:
-        pass
+    WEB_PORT = reserve_free_port()
+    BASE_URL = f"http://{WEB_HOST}:{WEB_PORT}"
 
     # Start server in background thread
     server_thread = threading.Thread(target=run_server, daemon=True)
@@ -74,15 +74,13 @@ def start_test_server():
         time.sleep(0.1)
 
     # Verify server is actually listening
-    import socket
     for attempt in range(20):
         try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            result = sock.connect_ex((WEB_HOST, WEB_PORT))
-            sock.close()
-            if result == 0:
-                time.sleep(0.3)
-                break
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                result = sock.connect_ex((WEB_HOST, WEB_PORT))
+                if result == 0:
+                    time.sleep(0.3)
+                    break
         except Exception:
             pass
         time.sleep(0.1)
@@ -94,7 +92,10 @@ def start_test_server():
 def browser():
     """Create a Playwright browser instance"""
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        try:
+            browser = p.chromium.launch(headless=True)
+        except PlaywrightError as exc:
+            pytest.skip(f"Playwright Chromium unavailable: {exc}")
         yield browser
         browser.close()
 

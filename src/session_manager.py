@@ -46,7 +46,7 @@ class SessionManager:
         registry_path: Optional[Path] = None,
     ):
         self.max_sessions = max_sessions
-        self.registry_path = Path(registry_path) if registry_path else Path("output/session-registry.json")
+        self.registry_path = Path(registry_path) if registry_path else Path(Config.SESSION_REGISTRY_PATH)
         self.sessions: dict[str, TerminalSession | TmuxSession] = {}
         self.session_records: dict[str, SessionRecord] = {}
         self.session_count = 0
@@ -182,8 +182,6 @@ class SessionManager:
             summaries.append(self.get_session_summary(session_id))
 
         for record in self.session_records.values():
-            if record.backend != "tmux":
-                continue
             if record.session_id in seen_ids:
                 continue
             summaries.append(self.get_session_summary(record.session_id))

@@ -10,6 +10,7 @@ def test_config_defaults():
     assert isinstance(Config.TERMINAL_SHELL, str) and Config.TERMINAL_SHELL
     assert Config.TERMINAL_TIMEOUT >= 1
     assert 1 <= Config.WEB_PORT <= 65535
+    assert isinstance(Config.SESSION_REGISTRY_PATH, str) and Config.SESSION_REGISTRY_PATH
     assert Config.CLAUDE_CODE_AUTO_CONTINUE_GRACE_SECONDS >= 0
     assert Config.CLAUDE_CODE_CCUSAGE_TIMEOUT_SECONDS >= 1
 

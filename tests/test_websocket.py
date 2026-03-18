@@ -2,6 +2,7 @@
 WebSocket tests for TeleCLI
 Tests the WebSocket endpoint using TestClient
 """
+import asyncio
 import contextlib
 import json
 import time
@@ -282,3 +283,33 @@ def test_websocket_claude_code_auto_continue_visible_screen_report_arms_waiting_
         )
 
         assert controller.get_status()["wait_reason"] == "block_reset"
+
+
+@pytest.mark.asyncio
+async def test_send_json_locked_serializes_concurrent_calls():
+    """The shared websocket send helper should serialize concurrent senders."""
+    class FakeWebSocket:
+        def __init__(self):
+            self.messages = []
+            self.in_flight = 0
+
+        async def send_json(self, payload):
+            self.in_flight += 1
+            if self.in_flight > 1:
+                raise RuntimeError("concurrent websocket send")
+            try:
+                await asyncio.sleep(0.01)
+                self.messages.append(payload)
+            finally:
+                self.in_flight -= 1
+
+    websocket = FakeWebSocket()
+    send_lock = asyncio.Lock()
+
+    results = await asyncio.gather(
+        web_app.send_json_locked(websocket, {"kind": "first"}, send_lock),
+        web_app.send_json_locked(websocket, {"kind": "second"}, send_lock),
+    )
+
+    assert results == [True, True]
+    assert websocket.messages == [{"kind": "first"}, {"kind": "second"}]
