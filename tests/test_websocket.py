@@ -1,0 +1,315 @@
+"""
+WebSocket tests for TeleCLI
+Tests the WebSocket endpoint using TestClient
+"""
+import asyncio
+import contextlib
+import json
+import time
+from datetime import datetime, timedelta
+
+import pytest
+from fastapi.testclient import TestClient
+from src.web_app import app
+from src.config import Config
+import src.web_app as web_app
+
+
+@pytest.fixture
+def client(monkeypatch):
+    """Create a test client"""
+    monkeypatch.setattr(Config, "AUTH_REQUIRED", False)
+    with TestClient(app) as test_client:
+        yield test_client
+
+
+@pytest.fixture
+def client_id():
+    """Generate a unique client ID"""
+    return "test-client-123"
+
+
+def receive_json_until(websocket, key: str, predicate=None, max_messages: int = 20):
+    """Read websocket JSON messages until the target key matches the optional predicate."""
+    for _ in range(max_messages):
+        payload = websocket.receive_json()
+        if key in payload and (predicate is None or predicate(payload[key])):
+            return payload
+    raise AssertionError(f"Did not receive websocket payload containing {key}")
+
+
+def wait_for_condition(predicate, description: str, timeout_seconds: float = 1.0):
+    """Poll until a predicate becomes truthy or time out with a clear assertion."""
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if predicate():
+            return
+        time.sleep(0.01)
+    raise AssertionError(f"Timed out waiting for {description}")
+
+
+def test_websocket_endpoint_exists(client):
+    """Test that WebSocket endpoint is registered"""
+    # The endpoint should be accessible
+    # We'll test it with TestClient's WebSocket support
+    with client.websocket_connect(f"/ws/test-client") as websocket:
+        data = websocket.receive_text()
+        # WebSocket should be open and ready
+        assert websocket is not None
+
+
+def test_websocket_connection_accepts_messages(client, client_id):
+    """Test that WebSocket accepts and processes messages"""
+    with client.websocket_connect(f"/ws/{client_id}") as websocket:
+        # Send a simple message
+        message = {"input": "echo test\n"}
+        websocket.send_text(json.dumps(message))
+
+        # Should be able to send without error
+        # (Response might come later)
+        assert websocket is not None
+
+
+def test_websocket_resize_message(client, client_id):
+    """Test sending terminal resize via WebSocket"""
+    with client.websocket_connect(f"/ws/{client_id}") as websocket:
+        # Send resize message
+        message = {"resize": {"rows": 30, "cols": 100}}
+        websocket.send_text(json.dumps(message))
+        # Should handle without error
+        assert websocket is not None
+
+
+def test_websocket_invalid_json_handling(client, client_id):
+    """Test WebSocket handles invalid JSON gracefully"""
+    with client.websocket_connect(f"/ws/{client_id}") as websocket:
+        # Send invalid JSON
+        websocket.send_text("not valid json {]")
+
+        # Connection should remain open
+        assert websocket is not None
+
+        # Send valid JSON after invalid
+        message = {"input": "test\n"}
+        websocket.send_text(json.dumps(message))
+        assert websocket is not None
+
+
+def test_websocket_ai_proxy_enable(client, client_id):
+    """Test enabling AI proxy via WebSocket"""
+    with client.websocket_connect(f"/ws/{client_id}") as websocket:
+        message = {
+            "proxy": {
+                "enable": True,
+                "provider": "claude",
+                "system_prompt": "You are helpful"
+            }
+        }
+        websocket.send_text(json.dumps(message))
+        # Should process without error
+        assert websocket is not None
+
+
+def test_websocket_ai_proxy_disable(client, client_id):
+    """Test disabling AI proxy via WebSocket"""
+    with client.websocket_connect(f"/ws/{client_id}") as websocket:
+        message = {"proxy": {"disable": True}}
+        websocket.send_text(json.dumps(message))
+        # Should process without error
+        assert websocket is not None
+
+
+def test_websocket_multiple_messages(client, client_id):
+    """Test sending multiple messages to WebSocket"""
+    with client.websocket_connect(f"/ws/{client_id}") as websocket:
+        for i in range(3):
+            message = {"input": f"command {i}\n"}
+            websocket.send_text(json.dumps(message))
+
+        # Connection should remain stable
+        assert websocket is not None
+
+
+def test_websocket_endpoint_auth_not_required_by_default(client):
+    """Test that WebSocket doesn't require auth by default"""
+    # Should be able to connect without token
+    with client.websocket_connect(f"/ws/test-client") as websocket:
+        assert websocket is not None
+
+
+def test_websocket_terminal_input_command(client, client_id):
+    """Test sending terminal input command"""
+    with client.websocket_connect(f"/ws/{client_id}") as websocket:
+        message = {
+            "input": "ls -la\n"
+        }
+        websocket.send_text(json.dumps(message))
+        assert websocket is not None
+
+
+def test_websocket_combined_commands(client, client_id):
+    """Test sending multiple command types"""
+    with client.websocket_connect(f"/ws/{client_id}") as websocket:
+        # Resize
+        websocket.send_text(json.dumps({"resize": {"rows": 40, "cols": 120}}))
+
+        # Input
+        websocket.send_text(json.dumps({"input": "pwd\n"}))
+
+        # Proxy enable
+        websocket.send_text(json.dumps({"proxy": {"enable": True, "provider": "claude"}}))
+
+        # Input again
+        websocket.send_text(json.dumps({"input": "echo done\n"}))
+
+        assert websocket is not None
+
+
+def test_websocket_endpoint_structure():
+    """Test that WebSocket endpoint is properly structured"""
+    # Verify the app has the websocket route
+    routes = app.routes
+    ws_routes = [r for r in routes if hasattr(r, 'path') and '/ws' in str(r.path)]
+    assert len(ws_routes) > 0, "WebSocket endpoint not found in routes"
+
+
+def test_websocket_multiple_concurrent_sessions(client):
+    """Test multiple WebSocket sessions"""
+    client_ids = ["client-1", "client-2", "client-3"]
+
+    with contextlib.ExitStack() as stack:
+        sockets = [
+            stack.enter_context(client.websocket_connect(f"/ws/{cid}"))
+            for cid in client_ids
+        ]
+
+        # All should be open
+        for ws in sockets:
+            ws.send_text(json.dumps({"input": "test\n"}))
+
+
+def test_api_ai_proxy_config_from_websocket():
+    """Test that AI proxy config is available"""
+    with TestClient(app) as client:
+        response = client.get("/api/ai-proxy/config")
+        assert response.status_code == 200
+        data = response.json()
+        assert "default_provider" in data
+        assert "default_system_prompt" in data
+        assert "max_iterations" in data
+
+
+def test_api_llm_monitor_from_websocket():
+    """Test that LLM monitor endpoint is available"""
+    with TestClient(app) as client:
+        response = client.get("/api/llm-monitor")
+        assert response.status_code == 200
+        data = response.json()
+        assert "entries" in data
+        assert isinstance(data["entries"], list)
+
+
+def test_websocket_with_special_characters(client, client_id):
+    """Test WebSocket with special characters in input"""
+    with client.websocket_connect(f"/ws/{client_id}") as websocket:
+        message = {
+            "input": "echo 'Special chars: !@#$%^&*()'\n"
+        }
+        websocket.send_text(json.dumps(message))
+        assert websocket is not None
+
+
+def test_websocket_claude_code_auto_continue_enable(client, client_id):
+    """Test enabling Claude Code auto-continue via WebSocket."""
+    with client.websocket_connect(f"/ws/{client_id}") as websocket:
+        websocket.send_text(json.dumps({"claude_code": {"enable": True}}))
+        response = receive_json_until(
+            websocket,
+            "claude_code_status",
+            predicate=lambda status: status.get("enabled") is True,
+        )
+
+        assert response["claude_code_status"]["enabled"] is True
+        assert response["claude_code_status"]["waiting"] is False
+
+
+def test_websocket_claude_code_auto_continue_disable(client, client_id):
+    """Test disabling Claude Code auto-continue via WebSocket."""
+    with client.websocket_connect(f"/ws/{client_id}") as websocket:
+        websocket.send_text(json.dumps({"claude_code": {"enable": True}}))
+        receive_json_until(
+            websocket,
+            "claude_code_status",
+            predicate=lambda status: status.get("enabled") is True,
+        )
+
+        websocket.send_text(json.dumps({"claude_code": {"disable": True}}))
+        response = receive_json_until(
+            websocket,
+            "claude_code_status",
+            predicate=lambda status: status.get("enabled") is False,
+        )
+
+        assert response["claude_code_status"]["enabled"] is False
+
+
+def test_websocket_claude_code_auto_continue_visible_screen_report_arms_waiting_state(client, client_id, monkeypatch):
+    """A browser-reported visible Claude limit screen should arm the waiting state."""
+    with client.websocket_connect(f"/ws/{client_id}") as websocket:
+        websocket.send_text(json.dumps({"claude_code": {"enable": True}}))
+        receive_json_until(
+            websocket,
+            "claude_code_status",
+            predicate=lambda status: status.get("enabled") is True,
+        )
+
+        controller = web_app.session_manager.get_claude_code_auto_continue(client_id)
+
+        async def resolve_resume_deadline(wait_reason_hint: str, _screen_text: str | None = None):
+            assert wait_reason_hint == "block_reset"
+            return datetime.now().astimezone() + timedelta(minutes=5), "block_reset"
+
+        monkeypatch.setattr(controller, "_resolve_resume_deadline", resolve_resume_deadline)
+
+        websocket.send_text(json.dumps({
+            "claude_code": {
+                "screen_text": "Claude Code\n100% used\nResets at 6:00 PM",
+            }
+        }))
+
+        wait_for_condition(
+            lambda: controller.get_status()["waiting"] is True,
+            "Claude auto-continue waiting state",
+        )
+
+        assert controller.get_status()["wait_reason"] == "block_reset"
+
+
+@pytest.mark.asyncio
+async def test_send_json_locked_serializes_concurrent_calls():
+    """The shared websocket send helper should serialize concurrent senders."""
+    class FakeWebSocket:
+        def __init__(self):
+            self.messages = []
+            self.in_flight = 0
+
+        async def send_json(self, payload):
+            self.in_flight += 1
+            if self.in_flight > 1:
+                raise RuntimeError("concurrent websocket send")
+            try:
+                await asyncio.sleep(0.01)
+                self.messages.append(payload)
+            finally:
+                self.in_flight -= 1
+
+    websocket = FakeWebSocket()
+    send_lock = asyncio.Lock()
+
+    results = await asyncio.gather(
+        web_app.send_json_locked(websocket, {"kind": "first"}, send_lock),
+        web_app.send_json_locked(websocket, {"kind": "second"}, send_lock),
+    )
+
+    assert results == [True, True]
+    assert websocket.messages == [{"kind": "first"}, {"kind": "second"}]

@@ -1,3 +1,19 @@
+html {
+    width: 100%;
+    min-height: var(--app-height);
+    height: var(--app-height);
+}
+
+:root {
+    --app-height: 100vh;
+}
+
+@supports (height: 100dvh) {
+    :root {
+        --app-height: 100dvh;
+    }
+}
+
 * {
     margin: 0;
     padding: 0;
@@ -7,12 +23,14 @@
 /* Base body styles */
 body {
     font-family: 'Courier New', monospace;
-    min-height: 100vh;
+    width: 100%;
+    min-height: var(--app-height);
+    height: var(--app-height);
     display: flex;
     align-items: stretch;
     justify-content: stretch;
     padding: 0;
-    margin: 0;
+    margin: 0 !important;
     position: relative;
     overflow: hidden;
     transition: all 0.3s ease;
@@ -68,9 +86,11 @@ body.theme-modern::before {
     max-width: none;
     border-radius: 0;
     overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    height: 100vh;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    flex: 1 1 auto;
+    min-height: var(--app-height);
+    height: var(--app-height);
     position: relative;
     z-index: 1;
     transition: all 0.3s ease;
@@ -134,6 +154,13 @@ header {
     font-size: 11px;
     line-height: 1.2;
     opacity: 0.8;
+}
+
+#session-compact {
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .controls-compact {
@@ -564,14 +591,146 @@ body.theme-matrix .modal-apply-btn {
 }
 
 /* Session item styles */
+.session-manager-modal {
+    max-height: min(80vh, 720px);
+    display: flex;
+    flex-direction: column;
+}
+
+.session-modal-subtitle {
+    font-size: 13px;
+    line-height: 1.45;
+    margin-top: 8px;
+    opacity: 0.8;
+}
+
+.session-toolbar {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 15px;
+    flex-wrap: wrap;
+}
+
+.session-toolbar-single {
+    justify-content: flex-end;
+}
+
+.session-text-input {
+    flex: 1 1 240px;
+    min-width: 0;
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-size: 14px;
+    outline: none;
+}
+
+.session-list-body {
+    max-height: min(48vh, 360px);
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+.session-empty-state {
+    text-align: center;
+    padding: 24px 18px;
+    border-radius: 10px;
+    opacity: 0.75;
+}
+
 .session-item {
     background: rgba(255, 255, 255, 0.05);
     transition: all 0.2s ease;
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px;
+    margin: 8px 0;
+    border-radius: 10px;
+    cursor: pointer;
+    border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .session-item:hover {
     background: rgba(255, 255, 255, 0.1);
     transform: translateY(-1px);
+}
+
+.current-session {
+    border-width: 2px;
+}
+
+.session-unavailable {
+    opacity: 0.75;
+}
+
+.session-item-body {
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.session-item-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.session-item-title {
+    font-weight: 700;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+}
+
+.session-item-meta,
+.session-item-note {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 6px;
+    font-size: 12px;
+    opacity: 0.75;
+    flex-wrap: wrap;
+}
+
+.session-pill-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.session-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.session-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    flex: 0 0 auto;
+}
+
+.session-actions button {
+    padding: 6px 10px;
+    font-size: 12px;
+    min-width: 74px;
+}
+
+.session-delete-btn {
+    border-color: rgba(255, 107, 107, 0.5) !important;
+    color: #ff8a8a !important;
 }
 
 /* Matrix theme session items */
@@ -596,12 +755,69 @@ body.theme-modern .session-item:hover {
     box-shadow: 0 2px 8px rgba(137, 180, 250, 0.2);
 }
 
+body.theme-matrix .session-modal-subtitle,
+body.theme-matrix .session-empty-state,
+body.theme-matrix .session-item-meta,
+body.theme-matrix .session-item-note {
+    color: #9fdca7;
+}
+
+body.theme-modern .session-modal-subtitle,
+body.theme-modern .session-empty-state,
+body.theme-modern .session-item-meta,
+body.theme-modern .session-item-note {
+    color: #a6adc8;
+}
+
+body.theme-matrix .session-text-input {
+    background: #1a1a1a;
+    color: #e0e0e0;
+    border: 1px solid #00ff41;
+}
+
+body.theme-modern .session-text-input {
+    background: rgba(30, 30, 46, 0.8);
+    color: #cdd6f4;
+    border: 1px solid rgba(137, 180, 250, 0.3);
+}
+
+body.theme-matrix .current-session {
+    box-shadow: 0 0 0 1px rgba(0, 255, 65, 0.4);
+}
+
+body.theme-modern .current-session {
+    box-shadow: 0 0 0 1px rgba(137, 180, 250, 0.45);
+}
+
+body.theme-matrix .session-pill {
+    background: rgba(0, 255, 65, 0.12);
+    border: 1px solid rgba(0, 255, 65, 0.3);
+    color: #85ffad;
+}
+
+body.theme-modern .session-pill {
+    background: rgba(137, 180, 250, 0.14);
+    border: 1px solid rgba(137, 180, 250, 0.28);
+    color: #d4e7ff;
+}
+
+.session-pill-warning {
+    color: #f9e2af !important;
+}
+
+.session-pill-success {
+    color: #a6e3a1 !important;
+}
+
 /* Main Content Layout */
 .main-content {
     display: flex;
     flex-direction: column;
-    flex: 1;
+    flex: 1 1 auto;
     min-height: 0;
+    min-width: 0;
+    height: 100%;
+    overflow: hidden;
     /* Allow flex shrinking */
     transition: all 0.3s ease;
 }
@@ -615,8 +831,10 @@ body.theme-modern .session-item:hover {
     display: flex;
     flex-direction: column;
     width: 100%;
-    flex: 1;
+    flex: 1 1 auto;
     min-height: 0;
+    min-width: 0;
+    overflow: hidden;
     transition: width 0.3s ease;
     /* Ensure proper space distribution and allow flex shrinking */
 }
@@ -1098,7 +1316,8 @@ body.theme-modern .submenu-divider {
 
     /* Container and layout adjustments */
     .container {
-        height: 100vh;
+        min-height: var(--app-height);
+        height: var(--app-height);
         width: 100%;
         margin: 0;
         border-radius: 0;
@@ -1127,6 +1346,10 @@ body.theme-modern .submenu-divider {
 
     .status-inline {
         font-size: 10px;
+    }
+
+    #session-compact {
+        max-width: 150px;
     }
 
     .controls-compact {
@@ -1230,6 +1453,35 @@ body.theme-modern .submenu-divider {
         font-size: 10px;
     }
 
+    .session-manager-modal {
+        padding: 18px !important;
+        width: 95% !important;
+        max-height: min(85vh, 760px);
+    }
+
+    .session-toolbar {
+        align-items: stretch;
+    }
+
+    .session-text-input {
+        flex-basis: 100%;
+    }
+
+    .session-toolbar button,
+    .session-actions button {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    .session-item {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .session-actions {
+        width: 100%;
+    }
+
     /* Ensure terminal fills available space properly on mobile */
     .terminal {
         padding: 5px;
@@ -1269,13 +1521,90 @@ body.theme-modern .submenu-divider {
 
     /* Ensure terminal has proper height on small screens */
     .main-content {
-        min-height: calc(100vh - 140px);
-        /* Account for taller mobile header */
+        min-height: 0;
     }
 
     .terminal {
         padding: 4px;
     }
+}
+
+@media (max-width: 768px) and (max-height: 560px) {
+    header {
+        padding: 4px 6px;
+    }
+
+    .header-compact {
+        gap: 6px;
+    }
+
+    .title-section h1 {
+        font-size: 1.05em;
+    }
+
+    .status-inline {
+        font-size: 9px;
+        line-height: 1.1;
+    }
+
+    .controls-compact {
+        gap: 4px;
+    }
+
+    .controls-compact button {
+        height: 30px;
+        min-width: 40px;
+        padding: 4px 6px;
+        font-size: 10px;
+    }
+
+    footer {
+        padding: 4px 8px;
+        min-height: 34px;
+        font-size: 10px;
+    }
+}
+
+body.keyboard-open header {
+    padding: 4px 6px;
+}
+
+body.keyboard-open .header-compact {
+    gap: 6px;
+}
+
+body.keyboard-open .title-section h1 {
+    font-size: 1.05em;
+}
+
+body.keyboard-open .status-inline {
+    font-size: 9px;
+    line-height: 1.1;
+}
+
+body.keyboard-open .controls-compact {
+    gap: 4px;
+}
+
+body.keyboard-open .controls-compact button {
+    height: 30px;
+    min-width: 40px;
+    padding: 4px 6px;
+    font-size: 10px;
+}
+
+body.keyboard-open .terminal {
+    padding: 4px;
+}
+
+body.keyboard-open footer {
+    padding: 4px 8px;
+    min-height: 34px;
+    font-size: 10px;
+}
+
+body.keyboard-open #stats {
+    display: none;
 }
 
 /* Very small screens - icon-only buttons with tooltips */

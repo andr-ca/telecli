@@ -29,6 +29,7 @@
                 <div class="controls-compact">
                     <button id="ai-proxy-btn" onclick="toggleAIProxy()">🤖 AI Proxy: OFF</button>
                     <button id="ai-proxy-reset-btn" onclick="resetAIProxy()" style="display: none;">🔄 Reset</button>
+                    <button id="claude-code-btn" onclick="toggleClaudeCodeAutoContinue()">⏱ CC Auto: OFF</button>
 
                     <!-- Mobile Controls Menu -->
                     <div class="submenu-container">
@@ -100,6 +101,7 @@
 
             <!-- Status lines (hidden by default, shown when needed) -->
             <div id="proxy-status" class="status-line" style="display: none;"></div>
+            <div id="claude-code-status" class="status-line" style="display: none;"></div>
         </header>
 
         <!-- AI Proxy Settings Modal -->
@@ -148,17 +150,23 @@
         <!-- Session Picker Modal -->
         <div id="session-picker-modal" class="modal-backdrop"
             style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1000; align-items: center; justify-content: center;">
-            <div class="modal-content" style="padding: 30px; max-width: 500px; width: 90%;">
+            <div class="modal-content session-manager-modal" style="padding: 30px; max-width: 640px; width: 92%;">
                 <h2 style="margin-top: 0;">📋 Session Manager</h2>
+                <p class="session-modal-subtitle">Create named TeleCLI sessions or attach an existing tmux session
+                    only when you want it in TeleCLI.</p>
 
                 <div style="margin: 20px 0;">
-                    <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-                        <button onclick="createNewSession()" class="modal-apply-btn" style="flex: 1;">🆕 New
-                            Session</button>
-                        <button onclick="refreshSessions()" style="flex: 0 0 auto; padding: 10px;">🔄</button>
+                    <div class="session-toolbar">
+                        <input type="text" id="new-session-name" class="session-text-input"
+                            placeholder="Name a new TeleCLI session"
+                            onkeydown="if(event.key === 'Enter') createNewSession()">
+                        <button id="create-session-btn" onclick="createNewSession()" class="modal-apply-btn">🆕
+                            Create</button>
+                        <button id="attach-tmux-btn" onclick="openTmuxPicker()">🧲 Attach tmux</button>
+                        <button id="refresh-sessions-btn" onclick="refreshSessions()" title="Refresh sessions">🔄</button>
                     </div>
 
-                    <div id="sessions-list" style="max-height: 300px; overflow-y: auto;">
+                    <div id="sessions-list" class="session-list-body">
                         <div style="text-align: center; color: #7f8c8d; padding: 20px;">
                             Loading sessions...
                         </div>
@@ -167,6 +175,41 @@
 
                 <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 25px;">
                     <button onclick="closeSessionPicker()" class="modal-cancel-btn">Close</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tmux Picker Modal -->
+        <div id="tmux-picker-modal" class="modal-backdrop"
+            style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1001; align-items: center; justify-content: center;">
+            <div class="modal-content session-manager-modal" style="padding: 30px; max-width: 640px; width: 92%;">
+                <h2 style="margin-top: 0;">🧲 Attach tmux</h2>
+                <p class="session-modal-subtitle">Machine tmux sessions stay out of the main Sessions list until you
+                    import one here.</p>
+
+                <div style="margin: 20px 0;">
+                    <div class="session-toolbar">
+                        <input type="text" id="new-tmux-session-name" class="session-text-input"
+                            placeholder="Create a new tmux session"
+                            onkeydown="if(event.key === 'Enter') createTmuxSession()">
+                        <button id="create-tmux-session-btn" class="modal-apply-btn" onclick="createTmuxSession()">🆕
+                            New tmux</button>
+                    </div>
+
+                    <div class="session-toolbar session-toolbar-single">
+                        <button id="refresh-tmux-sessions-btn" onclick="refreshTmuxSessions()">🔄 Refresh machine tmux
+                            sessions</button>
+                    </div>
+
+                    <div id="tmux-sessions-list" class="session-list-body">
+                        <div style="text-align: center; color: #7f8c8d; padding: 20px;">
+                            Loading tmux sessions...
+                        </div>
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 25px;">
+                    <button onclick="closeTmuxPicker()" class="modal-cancel-btn">Close</button>
                 </div>
             </div>
         </div>
@@ -246,6 +289,11 @@
         let term = null;
         let fitAddon = null;
         let aiProxyEnabled = false;
+        let claudeCodeAutoContinueEnabled = false;
+        let claudeCodeStatusState = { enabled: false };
+        let claudeCodeStatusIntervalId = null;
+        let claudeCodeRenderedScreenCheckTimeoutId = null;
+        let lastClaudeCodeRenderedScreenFingerprint = null;
         let systemPrompt = "";  // Will be loaded from backend
         let additionalContext = "";
         let defaultProvider = "gemini-cli";  // Will be loaded from backend
@@ -253,6 +301,10 @@
         let llmMonitorVisible = false;
         let llmAutoScroll = true;
         let llmEntryCounter = 0;
+        let reconnectTimeoutId = null;
+        let websocketGeneration = 0;
+        let sessionMetadataById = {};
+        let tmuxSessionMetadataByName = {};
 
         // Stale state detection
         let lastOutputTime = Date.now();
@@ -260,25 +312,182 @@
         let terminalRefreshAttempts = 0;
         let recoveryMessageShown = false;
 
+        function getBasePath() {
+            return window.location.pathname.replace(/\/$/, '');
+        }
+
         function generateNewSessionId() {
             return 'web-' + crypto.getRandomValues(new Uint8Array(16))
                 .reduce((hex, byte) => hex + byte.toString(16).padStart(2, '0'), '');
         }
 
-        function saveSessionId(sessionId) {
+        function clearClaudeCodeRenderedScreenDetection() {
+            if (claudeCodeRenderedScreenCheckTimeoutId) {
+                clearTimeout(claudeCodeRenderedScreenCheckTimeoutId);
+                claudeCodeRenderedScreenCheckTimeoutId = null;
+            }
+            lastClaudeCodeRenderedScreenFingerprint = null;
+        }
+
+        function getVisibleTerminalText() {
+            if (!term || !term.buffer || !term.buffer.active) {
+                return '';
+            }
+
+            const buffer = term.buffer.active;
+            const start = buffer.viewportY;
+            const end = Math.min(start + term.rows, buffer.length);
+            const lines = [];
+
+            for (let i = start; i < end; i++) {
+                lines.push(buffer.getLine(i)?.translateToString(true) ?? '');
+            }
+
+            return lines.join('\n').trim();
+        }
+
+        function shouldReportClaudeCodeRenderedScreen(screenText) {
+            if (!screenText) {
+                return false;
+            }
+
+            const lowerText = screenText.toLowerCase();
+            const hasClaudeMarker = ['claude', 'anthropic', 'sonnet', 'opus', 'haiku'].some(
+                (marker) => lowerText.includes(marker)
+            );
+            const hasLimitMarker = [
+                'usage limit',
+                'weekly limit',
+                'weekly usage',
+                'limit reached',
+                'hit your limit',
+                'blocked until',
+                'try again later',
+                'please wait',
+                '5-hour',
+                '5 hour',
+                'block reset',
+                'session block',
+                'usage block',
+                'resets at',
+                'resets in',
+            ].some((marker) => lowerText.includes(marker));
+            const hasPercentUsedReset = /\b100\s*(?:%|percent)\s*used\b/i.test(screenText)
+                && /\bresets\s+(?:at|in)\b/i.test(lowerText);
+            const hasHitLimitReset = lowerText.includes('hit your limit') && lowerText.includes('reset');
+
+            return hasPercentUsedReset || hasHitLimitReset || (hasClaudeMarker && hasLimitMarker);
+        }
+
+        function reportClaudeCodeRenderedScreenIfNeeded() {
+            claudeCodeRenderedScreenCheckTimeoutId = null;
+
+            if (!claudeCodeAutoContinueEnabled || !isConnected || !ws || ws.readyState !== WebSocket.OPEN) {
+                return;
+            }
+
+            const screenText = getVisibleTerminalText();
+            if (!shouldReportClaudeCodeRenderedScreen(screenText)) {
+                return;
+            }
+
+            const fingerprint = screenText.slice(-500);
+            if (fingerprint === lastClaudeCodeRenderedScreenFingerprint) {
+                return;
+            }
+
+            lastClaudeCodeRenderedScreenFingerprint = fingerprint;
+            ws.send(JSON.stringify({
+                claude_code: {
+                    screen_text: screenText
+                }
+            }));
+        }
+
+        function scheduleClaudeCodeRenderedScreenCheck(delayMs = 0) {
+            if (claudeCodeRenderedScreenCheckTimeoutId) {
+                clearTimeout(claudeCodeRenderedScreenCheckTimeoutId);
+            }
+
+            claudeCodeRenderedScreenCheckTimeoutId = setTimeout(() => {
+                reportClaudeCodeRenderedScreenIfNeeded();
+            }, delayMs);
+        }
+
+        function rememberSessionMetadata(session) {
+            if (!session || !session.id) {
+                return;
+            }
+
+            sessionMetadataById[session.id] = session;
+            if (session.id === clientId) {
+                updateSessionStatus();
+            }
+        }
+
+        function forgetSessionMetadata(sessionId) {
+            delete sessionMetadataById[sessionId];
+            if (sessionId === clientId) {
+                updateSessionStatus();
+            }
+        }
+
+        function saveSessionId(sessionId, sessionSummary = null) {
+            if (sessionSummary) {
+                rememberSessionMetadata(sessionSummary);
+            }
+            clearClaudeCodeRenderedScreenDetection();
             localStorage.setItem('terminal-session-id', sessionId);
             clientId = sessionId;
             updateSessionStatus();
         }
 
         function updateSessionStatus() {
-            const shortId = clientId.length > 12 ? clientId.substring(4, 12) + '...' : clientId.substring(4);
-
-            // Update compact header session display
             const sessionCompact = document.getElementById('session-compact');
-            if (sessionCompact) {
-                sessionCompact.textContent = `📋 ${shortId}`;
+            if (!sessionCompact) {
+                return;
             }
+
+            const session = sessionMetadataById[clientId];
+            if (!session) {
+                const shortId = clientId.length > 12 ? clientId.substring(4, 12) + '...' : clientId.substring(4);
+                sessionCompact.textContent = `📋 ${shortId}`;
+                sessionCompact.title = clientId;
+                return;
+            }
+
+            const backendLabel = session.backend === 'tmux'
+                ? `tmux:${session.tmux_session_name || session.name}`
+                : 'telecli';
+            sessionCompact.textContent = `📋 ${session.name}`;
+            sessionCompact.title = `${session.name} (${backendLabel})`;
+        }
+
+        async function apiRequest(path, options = {}) {
+            const requestOptions = {
+                ...options,
+                headers: { ...(options.headers || {}) }
+            };
+
+            if (requestOptions.body && !requestOptions.headers['Content-Type']) {
+                requestOptions.headers['Content-Type'] = 'application/json';
+            }
+
+            const response = await fetch(`${getBasePath()}${path}`, requestOptions);
+            if (!response.ok) {
+                let errorMessage = `Request failed (${response.status})`;
+
+                try {
+                    const errorPayload = await response.json();
+                    errorMessage = errorPayload.detail || errorMessage;
+                } catch (error) {
+                    // Ignore JSON parsing failures for non-JSON error bodies.
+                }
+
+                throw new Error(errorMessage);
+            }
+
+            return response.json();
         }
 
         function clearAuth() {
@@ -455,9 +664,7 @@
             stopStaleStateMonitoring();
 
             // Close current connection
-            if (ws) {
-                ws.close();
-            }
+            closeCurrentWebSocket();
 
             // Clear terminal and show reconnection message
             if (term) {
@@ -884,108 +1091,337 @@
 
         function closeSessionPicker() {
             document.getElementById('session-picker-modal').style.display = 'none';
+            closeTmuxPicker();
+        }
+
+        function renderSessionEmptyState(message) {
+            return `
+                <div class="session-empty-state">
+                    ${escapeHtml(message)}
+                </div>
+            `;
+        }
+
+        function renderSessionRow(session) {
+            const isCurrent = session.id === clientId;
+            const backendLabel = session.backend === 'tmux' ? 'tmux' : 'telecli';
+            const targetLabel = session.backend === 'tmux' && session.tmux_session_name
+                ? `tmux:${escapeHtml(session.tmux_session_name)}`
+                : escapeHtml(session.id);
+            const availabilityLabel = session.is_active ? 'Live' : (session.available ? 'Ready' : 'Unavailable');
+            const sessionIdArg = encodeURIComponent(session.id);
+            const sessionIdAttr = escapeHtml(session.id);
+            const removeLabel = session.backend === 'tmux' ? 'Forget' : 'Remove';
+            const detachButton = session.backend === 'tmux' && session.is_active
+                ? `<button type="button" data-action="detach-session" data-session-id="${sessionIdAttr}"
+                            onclick="event.stopPropagation(); detachTmuxSession(decodeURIComponent('${sessionIdArg}'))">Detach</button>`
+                : '';
+
+            return `
+                <div class="session-item${isCurrent ? ' current-session' : ''}${session.available ? '' : ' session-unavailable'}"
+                    onclick="selectSession(decodeURIComponent('${sessionIdArg}'))">
+                    <div class="session-item-body">
+                        <div class="session-item-header">
+                            <div class="session-item-title">${isCurrent ? 'Current: ' : ''}${escapeHtml(session.name)}</div>
+                            <div class="session-pill-row">
+                                <span class="session-pill">${backendLabel}</span>
+                                ${session.available ? '' : '<span class="session-pill session-pill-warning">offline</span>'}
+                            </div>
+                        </div>
+                        <div class="session-item-meta">
+                            <span>${targetLabel}</span>
+                            <span>${availabilityLabel}</span>
+                        </div>
+                    </div>
+                    <div class="session-actions">
+                        ${detachButton}
+                        <button type="button" data-action="rename-session" data-session-id="${sessionIdAttr}"
+                            onclick="event.stopPropagation(); renameSession(decodeURIComponent('${sessionIdArg}'))">Rename</button>
+                        <button type="button" data-action="delete-session" data-session-id="${sessionIdAttr}"
+                            class="session-delete-btn"
+                            onclick="event.stopPropagation(); deleteSession(decodeURIComponent('${sessionIdArg}'))">${removeLabel}</button>
+                    </div>
+                </div>
+            `;
         }
 
         async function refreshSessions() {
             try {
-                const basePath = window.location.pathname.replace(/\/$/, '');
-                const response = await fetch(`${basePath}/api/sessions`);
-                const data = await response.json();
+                const data = await apiRequest('/api/sessions');
                 const sessionsList = document.getElementById('sessions-list');
+                const sessions = data.sessions || [];
 
-                if (data.sessions.length === 0) {
-                    sessionsList.innerHTML = `
-                        <div style="text-align: center; color: #7f8c8d; padding: 20px;">
-                            No active sessions found
-                        </div>
-                    `;
+                sessions.forEach(rememberSessionMetadata);
+
+                const currentSession = sessions.find((session) => session.id === clientId);
+                if (currentSession) {
+                    rememberSessionMetadata(currentSession);
+                } else {
+                    updateSessionStatus();
+                }
+
+                if (sessions.length === 0) {
+                    sessionsList.innerHTML = renderSessionEmptyState(
+                        'No TeleCLI or imported tmux sessions yet'
+                    );
                     return;
                 }
 
-                sessionsList.innerHTML = data.sessions.map(session => `
-                    <div class="session-item" style="
-                        padding: 12px; 
-                        margin: 8px 0; 
-                        border-radius: 8px; 
-                        cursor: pointer;
-                        transition: all 0.2s ease;
-                        ${session.id === clientId ? 'border: 2px solid; opacity: 0.8;' : 'border: 1px solid rgba(255,255,255,0.1);'}
-                    " onclick="selectSession('${session.id}')">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <div>
-                                <div style="font-weight: bold; margin-bottom: 4px;">
-                                    ${session.id === clientId ? '🔗 ' : ''}${session.id}
-                                </div>
-                                <div style="font-size: 12px; opacity: 0.7;">
-                                    Shell: ${session.shell} | Active: ${session.is_active ? '✅' : '❌'}
-                                </div>
-                            </div>
-                            <button onclick="event.stopPropagation(); deleteSession('${session.id}')" 
-                                    style="background: rgba(255,0,0,0.2); border: 1px solid rgba(255,0,0,0.4); 
-                                           border-radius: 4px; padding: 4px 8px; color: #ff6b6b; font-size: 12px;">
-                                🗑️
-                            </button>
-                        </div>
-                    </div>
-                `).join('');
+                sessionsList.innerHTML = sessions.map(renderSessionRow).join('');
             } catch (error) {
                 console.error('Failed to fetch sessions:', error);
-                document.getElementById('sessions-list').innerHTML = `
-                    <div style="text-align: center; color: #ff6b6b; padding: 20px;">
-                        Failed to load sessions
-                    </div>
-                `;
+                document.getElementById('sessions-list').innerHTML = renderSessionEmptyState(
+                    'Failed to load sessions'
+                );
             }
         }
 
-        function selectSession(sessionId) {
+        async function openTmuxPicker() {
+            document.getElementById('tmux-picker-modal').style.display = 'flex';
+            await refreshTmuxSessions();
+        }
+
+        function closeTmuxPicker() {
+            document.getElementById('tmux-picker-modal').style.display = 'none';
+        }
+
+        function renderTmuxSessionRow(session) {
+            const importedLabel = session.imported && session.imported_name
+                ? `<div class="session-item-note">TeleCLI name: ${escapeHtml(session.imported_name)}</div>`
+                : '';
+            const windowsLabel = `${session.windows} window${session.windows === 1 ? '' : 's'}`;
+            const attachLabel = session.imported ? 'Open' : 'Attach';
+            const attachState = session.attached ? 'Attached elsewhere' : 'Detached';
+            const tmuxSessionArg = encodeURIComponent(session.name);
+            const tmuxSessionAttr = escapeHtml(session.name);
+
+            return `
+                <div class="session-item" data-tmux-session-name="${tmuxSessionAttr}">
+                    <div class="session-item-body">
+                        <div class="session-item-header">
+                            <div class="session-item-title">${escapeHtml(session.name)}</div>
+                            <div class="session-pill-row">
+                                <span class="session-pill">tmux</span>
+                                ${session.imported ? '<span class="session-pill session-pill-success">imported</span>' : ''}
+                            </div>
+                        </div>
+                        <div class="session-item-meta">
+                            <span>${windowsLabel}</span>
+                            <span>${attachState}</span>
+                        </div>
+                        ${importedLabel}
+                    </div>
+                    <div class="session-actions">
+                        <button type="button" data-action="import-tmux-session" data-tmux-session-name="${tmuxSessionAttr}"
+                            onclick="event.stopPropagation(); importTmuxSession(decodeURIComponent('${tmuxSessionArg}'))">${attachLabel}</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function refreshTmuxSessions() {
+            try {
+                const data = await apiRequest('/api/tmux/sessions');
+                const tmuxSessions = data.sessions || [];
+                const tmuxSessionsList = document.getElementById('tmux-sessions-list');
+
+                tmuxSessionMetadataByName = {};
+                tmuxSessions.forEach((session) => {
+                    tmuxSessionMetadataByName[session.name] = session;
+                });
+
+                if (tmuxSessions.length === 0) {
+                    tmuxSessionsList.innerHTML = renderSessionEmptyState('No tmux sessions found on this machine');
+                    return;
+                }
+
+                tmuxSessionsList.innerHTML = tmuxSessions.map(renderTmuxSessionRow).join('');
+            } catch (error) {
+                console.error('Failed to fetch tmux sessions:', error);
+                document.getElementById('tmux-sessions-list').innerHTML = renderSessionEmptyState(
+                    'Failed to load tmux sessions'
+                );
+            }
+        }
+
+        async function createTmuxSession() {
+            const nameInput = document.getElementById('new-tmux-session-name');
+            const tmuxSessionName = nameInput.value.trim();
+
+            if (!tmuxSessionName) {
+                alert('tmux session name cannot be empty');
+                return;
+            }
+
+            try {
+                const data = await apiRequest('/api/tmux/sessions', {
+                    method: 'POST',
+                    body: JSON.stringify({ name: tmuxSessionName })
+                });
+                nameInput.value = '';
+                rememberSessionMetadata(data.session);
+                await refreshTmuxSessions();
+                await refreshSessions();
+                selectSession(data.session.id, data.session);
+            } catch (error) {
+                console.error('Failed to create tmux session:', error);
+                alert(error.message || 'Failed to create tmux session');
+            }
+        }
+
+        function selectSession(sessionId, sessionSummary = null) {
+            if (sessionSummary) {
+                rememberSessionMetadata(sessionSummary);
+            }
+
             if (sessionId === clientId) {
+                closeTmuxPicker();
                 closeSessionPicker();
                 return;
             }
 
             // Disconnect current session
-            if (ws) {
-                ws.close();
-            }
+            closeCurrentWebSocket();
 
             // Switch to selected session
-            saveSessionId(sessionId);
+            saveSessionId(sessionId, sessionSummary);
 
             // Clear terminal and reconnect
             if (term) {
                 term.clear();
             }
 
+            closeTmuxPicker();
+            closeSessionPicker();
+
             setTimeout(async () => {
                 await connectWebSocket();
-                closeSessionPicker();
             }, 100);
         }
 
-        function createNewSession() {
-            const newSessionId = generateNewSessionId();
-            selectSession(newSessionId);
+        async function createNewSession() {
+            const nameInput = document.getElementById('new-session-name');
+            const payload = {};
+            const sessionName = nameInput.value.trim();
+
+            if (sessionName) {
+                payload.name = sessionName;
+            }
+
+            try {
+                const data = await apiRequest('/api/sessions', {
+                    method: 'POST',
+                    body: JSON.stringify(payload)
+                });
+                nameInput.value = '';
+                rememberSessionMetadata(data.session);
+                selectSession(data.session.id, data.session);
+            } catch (error) {
+                console.error('Failed to create session:', error);
+                alert(error.message || 'Failed to create session');
+            }
         }
 
-        async function deleteSession(sessionId) {
-            if (!confirm(`Delete session ${sessionId}?`)) {
+        async function renameSession(sessionId) {
+            const existingSession = sessionMetadataById[sessionId];
+            const currentName = existingSession?.name || sessionId;
+            const nextName = prompt('Rename session:', currentName);
+
+            if (nextName === null) {
+                return;
+            }
+
+            const trimmedName = nextName.trim();
+            if (!trimmedName) {
+                alert('Session name cannot be empty');
                 return;
             }
 
             try {
-                const basePath = window.location.pathname.replace(/\/$/, '');
-                await fetch(`${basePath}/reset/${sessionId}`, { method: 'POST' });
+                const data = await apiRequest(`/api/sessions/${encodeURIComponent(sessionId)}`, {
+                    method: 'PATCH',
+                    body: JSON.stringify({ name: trimmedName })
+                });
+                rememberSessionMetadata(data.session);
+                await refreshSessions();
+            } catch (error) {
+                console.error('Failed to rename session:', error);
+                alert(error.message || 'Failed to rename session');
+            }
+        }
+
+        async function deleteSession(sessionId) {
+            const session = sessionMetadataById[sessionId];
+            const label = session?.name || sessionId;
+            if (!confirm(`Remove session "${label}" from TeleCLI?`)) {
+                return;
+            }
+
+            try {
+                await apiRequest(`/api/sessions/${encodeURIComponent(sessionId)}`, {
+                    method: 'DELETE'
+                });
+                forgetSessionMetadata(sessionId);
 
                 // If we deleted our current session, create a new one
                 if (sessionId === clientId) {
-                    createNewSession();
+                    await createNewSession();
                 } else {
                     await refreshSessions();
                 }
             } catch (error) {
                 console.error('Failed to delete session:', error);
-                alert('Failed to delete session');
+                alert(error.message || 'Failed to delete session');
+            }
+        }
+
+        async function detachTmuxSession(sessionId) {
+            const session = sessionMetadataById[sessionId];
+            if (!session || session.backend !== 'tmux') {
+                return;
+            }
+
+            try {
+                const data = await apiRequest(`/api/sessions/${encodeURIComponent(sessionId)}/detach`, {
+                    method: 'POST'
+                });
+                rememberSessionMetadata(data.session);
+
+                if (sessionId === clientId) {
+                    const fallback = await apiRequest('/api/sessions', { method: 'POST' });
+                    rememberSessionMetadata(fallback.session);
+                    await refreshSessions();
+                    selectSession(fallback.session.id, fallback.session);
+                } else {
+                    await refreshSessions();
+                }
+            } catch (error) {
+                console.error('Failed to detach tmux session:', error);
+                alert(error.message || 'Failed to detach tmux session');
+            }
+        }
+
+        async function importTmuxSession(tmuxSessionName) {
+            const existingTmuxSession = tmuxSessionMetadataByName[tmuxSessionName];
+
+            if (existingTmuxSession?.imported && existingTmuxSession.imported_session_id) {
+                const existingSession = sessionMetadataById[existingTmuxSession.imported_session_id] || null;
+                selectSession(existingTmuxSession.imported_session_id, existingSession);
+                return;
+            }
+
+            try {
+                const data = await apiRequest('/api/sessions/import-tmux', {
+                    method: 'POST',
+                    body: JSON.stringify({ tmux_session_name: tmuxSessionName })
+                });
+                rememberSessionMetadata(data.session);
+                await refreshTmuxSessions();
+                await refreshSessions();
+                selectSession(data.session.id, data.session);
+            } catch (error) {
+                console.error('Failed to import tmux session:', error);
+                alert(error.message || 'Failed to attach tmux session');
             }
         }
 
@@ -1071,11 +1507,38 @@
             // Open terminal in container
             term.open(document.getElementById('terminal-container'));
 
+            const refreshLayout = () => {
+                if (!fitAddon) {
+                    return;
+                }
+
+                fitAddon.fit();
+                sendTerminalSize();
+
+                // A second pass helps after mobile viewport transitions such as the virtual keyboard.
+                setTimeout(() => {
+                    if (fitAddon) {
+                        fitAddon.fit();
+                        sendTerminalSize();
+                    }
+                }, 60);
+            };
+
+            const syncViewportHeight = () => {
+                const isMobileViewport = window.innerWidth <= 768;
+                const viewportHeight = Math.round(
+                    isMobileViewport && window.visualViewport
+                        ? window.visualViewport.height
+                        : window.innerHeight
+                );
+                document.documentElement.style.setProperty('--app-height', `${viewportHeight}px`);
+                document.body.classList.toggle('keyboard-open', isMobileViewport && viewportHeight < 560);
+                refreshLayout();
+            };
+
             // Ensure terminal fits properly after DOM is ready
             setTimeout(() => {
-                fitAddon.fit();
-                // Force a second fit to ensure proper sizing
-                setTimeout(() => fitAddon.fit(), 100);
+                syncViewportHeight();
             }, 50);
 
             // Send initial terminal size
@@ -1099,12 +1562,12 @@
             });
 
             // Handle window resize
-            window.addEventListener('resize', () => {
-                if (fitAddon) {
-                    fitAddon.fit();
-                    sendTerminalSize();
-                }
-            });
+            window.addEventListener('resize', syncViewportHeight);
+
+            if (window.visualViewport) {
+                window.visualViewport.addEventListener('resize', syncViewportHeight);
+                window.visualViewport.addEventListener('scroll', syncViewportHeight);
+            }
         }
 
         function sendTerminalSize() {
@@ -1114,6 +1577,37 @@
                 ws.send(JSON.stringify({
                     resize: { rows: rows, cols: cols }
                 }));
+            }
+        }
+
+        function cancelReconnect() {
+            if (reconnectTimeoutId) {
+                clearTimeout(reconnectTimeoutId);
+                reconnectTimeoutId = null;
+            }
+        }
+
+        function scheduleReconnect(delayMs) {
+            cancelReconnect();
+            reconnectTimeoutId = setTimeout(async () => {
+                reconnectTimeoutId = null;
+                await connectWebSocket();
+            }, delayMs);
+        }
+
+        function closeCurrentWebSocket(skipReconnect = true) {
+            cancelReconnect();
+
+            if (!ws) {
+                return;
+            }
+
+            if (skipReconnect) {
+                ws._skipReconnect = true;
+            }
+
+            if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+                ws.close();
             }
         }
 
@@ -1157,10 +1651,22 @@
 
         async function connectWebSocket() {
             try {
-                const wsUrl = await getWebSocketUrl();
-                ws = new WebSocket(wsUrl);
+                clearClaudeCodeRenderedScreenDetection();
+                closeCurrentWebSocket();
 
-                ws.onopen = () => {
+                const wsUrl = await getWebSocketUrl();
+                const currentGeneration = ++websocketGeneration;
+                const socket = new WebSocket(wsUrl);
+                socket._skipReconnect = false;
+                ws = socket;
+
+                socket.onopen = () => {
+                    if (ws !== socket || currentGeneration !== websocketGeneration) {
+                        socket._skipReconnect = true;
+                        socket.close();
+                        return;
+                    }
+
                     isConnected = true;
                     updateStatus('Connected', 'success');
 
@@ -1169,7 +1675,11 @@
                     console.log('Started stale state monitoring for connection');
                 };
 
-                ws.onmessage = (event) => {
+                socket.onmessage = (event) => {
+                    if (ws !== socket || currentGeneration !== websocketGeneration) {
+                        return;
+                    }
+
                     try {
                         const data = JSON.parse(event.data);
                         if (data.output && term) {
@@ -1177,7 +1687,11 @@
                             updateLastOutputTime();
 
                             // Write output immediately without scroll position checks for better performance
-                            term.write(data.output);
+                            term.write(data.output, () => {
+                                if (claudeCodeAutoContinueEnabled) {
+                                    scheduleClaudeCodeRenderedScreenCheck();
+                                }
+                            });
 
                             // Only check scroll position for larger chunks to reduce overhead
                             if (data.output.length > 100) {
@@ -1190,6 +1704,8 @@
                             term.write('\r\n\x1b[31mError: ' + data.error + '\x1b[0m\r\n');
                         } else if (data.proxy_status) {
                             updateProxyStatus(data.proxy_status);
+                        } else if (data.claude_code_status) {
+                            updateClaudeCodeStatus(data.claude_code_status);
                         } else if (data.llm_monitor) {
                             // Handle LLM monitoring data
                             if (llmMonitorVisible) {
@@ -1201,7 +1717,11 @@
                     }
                 };
 
-                ws.onerror = (error) => {
+                socket.onerror = (error) => {
+                    if (ws !== socket || currentGeneration !== websocketGeneration) {
+                        return;
+                    }
+
                     updateStatus('Error', 'error');
 
                     // Stop stale state monitoring on error
@@ -1209,22 +1729,35 @@
                     console.log('Stopped stale state monitoring due to WebSocket error');
                 };
 
-                ws.onclose = (event) => {
-                    isConnected = false;
+                socket.onclose = (event) => {
+                    const isCurrentSocket = ws === socket && currentGeneration === websocketGeneration;
 
-                    // Stop stale state monitoring when connection is closed
-                    stopStaleStateMonitoring();
-                    console.log('Stopped stale state monitoring due to connection close');
+                    if (isCurrentSocket) {
+                        isConnected = false;
+                        ws = null;
+
+                        // Stop stale state monitoring when connection is closed
+                        stopStaleStateMonitoring();
+                        console.log('Stopped stale state monitoring due to connection close');
+                    }
+
+                    if (socket._skipReconnect) {
+                        return;
+                    }
 
                     // Check if it's an authentication error
                     if (event.code === 1008) {
-                        updateStatus('Authentication failed', 'error');
-                        // Clear stored token and ask for new one
-                        localStorage.removeItem('terminal-auth-token');
-                        setTimeout(async () => await connectWebSocket(), 1000);
+                        if (isCurrentSocket) {
+                            updateStatus('Authentication failed', 'error');
+                            // Clear stored token and ask for new one
+                            localStorage.removeItem('terminal-auth-token');
+                        }
+                        scheduleReconnect(1000);
                     } else {
-                        updateStatus('Disconnected - Reconnecting...', 'warning');
-                        setTimeout(async () => await connectWebSocket(), 3000);
+                        if (isCurrentSocket) {
+                            updateStatus('Disconnected - Reconnecting...', 'warning');
+                        }
+                        scheduleReconnect(3000);
                     }
                 };
             } catch (e) {
@@ -1349,6 +1882,7 @@
 
         function updateProxyStatus(status) {
             const proxyStatusEl = document.getElementById('proxy-status');
+            aiProxyEnabled = Boolean(status.enabled);
 
             if (status.enabled) {
                 const pct = Math.round((status.iterations / status.max_iterations) * 100);
@@ -1363,10 +1897,155 @@
                 proxyStatusEl.textContent = statusText;
                 proxyStatusEl.style.color = color;
                 proxyStatusEl.style.display = 'block';
+                document.getElementById('ai-proxy-btn').textContent = '🤖 AI Proxy: ON';
                 document.getElementById('ai-proxy-reset-btn').style.display = 'inline-block';
             } else {
                 proxyStatusEl.style.display = 'none';
+                document.getElementById('ai-proxy-btn').textContent = '🤖 AI Proxy: OFF';
                 document.getElementById('ai-proxy-reset-btn').style.display = 'none';
+            }
+        }
+
+        function toggleClaudeCodeAutoContinue() {
+            if (!isConnected) {
+                return;
+            }
+
+            ws.send(JSON.stringify({
+                claude_code: claudeCodeAutoContinueEnabled ? { disable: true } : { enable: true }
+            }));
+        }
+
+        function formatRelativeCountdown(timestamp) {
+            if (!timestamp) {
+                return null;
+            }
+
+            const diffMs = new Date(timestamp).getTime() - Date.now();
+            if (!Number.isFinite(diffMs)) {
+                return null;
+            }
+
+            if (diffMs <= 0) {
+                return 'less than 1s';
+            }
+
+            const totalSeconds = Math.floor(diffMs / 1000);
+            const days = Math.floor(totalSeconds / 86400);
+            const hours = Math.floor((totalSeconds % 86400) / 3600);
+            const minutes = Math.floor((totalSeconds % 3600) / 60);
+            const seconds = totalSeconds % 60;
+            const parts = [];
+
+            if (days > 0) {
+                parts.push(`${days}d`);
+            }
+            if (hours > 0) {
+                parts.push(`${hours}h`);
+            }
+            if (minutes > 0 && parts.length < 2) {
+                parts.push(`${minutes}m`);
+            }
+            if (parts.length === 0 || (days === 0 && hours === 0 && parts.length < 2)) {
+                parts.push(`${seconds}s`);
+            }
+
+            return parts.slice(0, 2).join(' ');
+        }
+
+        function stopClaudeCodeStatusTicker() {
+            if (claudeCodeStatusIntervalId) {
+                clearInterval(claudeCodeStatusIntervalId);
+                claudeCodeStatusIntervalId = null;
+            }
+        }
+
+        function ensureClaudeCodeStatusTicker() {
+            if (claudeCodeStatusIntervalId) {
+                return;
+            }
+
+            claudeCodeStatusIntervalId = setInterval(() => {
+                renderClaudeCodeStatus();
+            }, 1000);
+        }
+
+        function renderClaudeCodeStatus() {
+            const button = document.getElementById('claude-code-btn');
+            const statusEl = document.getElementById('claude-code-status');
+            const status = claudeCodeStatusState || { enabled: false };
+
+            claudeCodeAutoContinueEnabled = Boolean(status.enabled);
+            button.textContent = `⏱ CC Auto: ${claudeCodeAutoContinueEnabled ? 'ON' : 'OFF'}`;
+            button.style.backgroundColor = claudeCodeAutoContinueEnabled ? '#16a085' : '';
+
+            if (!claudeCodeAutoContinueEnabled) {
+                stopClaudeCodeStatusTicker();
+                statusEl.style.display = 'none';
+                return;
+            }
+
+            let color = currentTheme === 'matrix' ? '#00ff41' : '#a6e3a1';
+            let message = '⏱ Claude Code auto-continue is armed';
+
+            if (status.last_error) {
+                stopClaudeCodeStatusTicker();
+                color = currentTheme === 'matrix' ? '#ff0000' : '#f38ba8';
+                message = `⚠ Claude Code auto-continue: ${status.last_error}`;
+            } else if (status.waiting && status.scheduled_for) {
+                ensureClaudeCodeStatusTicker();
+                color = currentTheme === 'matrix' ? '#ffff00' : '#f9e2af';
+                const scheduledFor = new Date(status.scheduled_for);
+                const reason = status.wait_reason === 'weekly_reset' ? 'week restart' : 'block reset';
+                const details = [`⏱ Waiting for ${reason}`];
+
+                if (status.reset_at) {
+                    const resetAt = new Date(status.reset_at);
+                    const resetCountdown = formatRelativeCountdown(status.reset_at);
+                    let ccusageDetails = `ccusage: resets ${resetAt.toLocaleString()}`;
+                    if (resetCountdown) {
+                        ccusageDetails = `ccusage: ${resetCountdown} left until ${reason} (${resetAt.toLocaleString()})`;
+                    }
+                    details.push(ccusageDetails);
+                }
+
+                const triggerCountdown = formatRelativeCountdown(status.scheduled_for);
+                let triggerDetails = `Next auto-trigger: ${scheduledFor.toLocaleString()}`;
+                if (triggerCountdown) {
+                    triggerDetails += ` (${triggerCountdown})`;
+                }
+                details.push(triggerDetails);
+                message = details.join(' | ');
+            } else if (status.last_continue_sent_at) {
+                stopClaudeCodeStatusTicker();
+                const sentAt = new Date(status.last_continue_sent_at);
+                message = `✅ Sent "continue" at ${sentAt.toLocaleString()}`;
+            } else {
+                stopClaudeCodeStatusTicker();
+                if (status.ccusage_available === false) {
+                    color = currentTheme === 'matrix' ? '#ffff00' : '#f9e2af';
+                    message = '⚠ Claude Code auto-continue is armed, but ccusage is unavailable so no auto-trigger can be scheduled';
+                } else {
+                    message = '⏱ Claude Code auto-continue is armed | No auto-trigger scheduled yet | Waiting for Claude to show a usage limit screen';
+                }
+            }
+
+            statusEl.textContent = message;
+            statusEl.style.color = color;
+            statusEl.style.display = 'block';
+        }
+
+        function updateClaudeCodeStatus(status) {
+            claudeCodeStatusState = status || { enabled: false };
+            renderClaudeCodeStatus();
+
+            if (!claudeCodeStatusState.enabled) {
+                clearClaudeCodeRenderedScreenDetection();
+                return;
+            }
+
+            if (!claudeCodeStatusState.waiting) {
+                scheduleClaudeCodeRenderedScreenCheck();
             }
         }
 
@@ -1656,7 +2335,7 @@
                     .then(r => r.json())
                     .then(data => {
                         if (term) term.clear();
-                        ws.close();
+                        closeCurrentWebSocket();
                         setTimeout(async () => await connectWebSocket(), 500);
                     })
                     .catch(e => console.error('Failed to reset'));

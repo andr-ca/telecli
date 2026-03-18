@@ -61,6 +61,7 @@ class Config:
     TERMINAL_TIMEOUT = _get_int("TERMINAL_TIMEOUT", 300, min_value=1)  # seconds
     TERMINAL_MAX_SESSIONS = _get_int("TERMINAL_MAX_SESSIONS", 100, min_value=1)
     TERMINAL_ENCODING = os.getenv("TERMINAL_ENCODING", "utf-8")
+    SESSION_REGISTRY_PATH = os.getenv("SESSION_REGISTRY_PATH", "output/session-registry.json")
 
     # Web Server Configuration
     WEB_HOST = os.getenv("WEB_HOST", "127.0.0.1")
@@ -108,6 +109,18 @@ class Config:
     
     # LLM Provider Timeouts
     LLM_TIMEOUT_SECONDS = _get_int("LLM_TIMEOUT_SECONDS", 90, min_value=10)
+
+    # Claude Code auto-continue
+    CLAUDE_CODE_AUTO_CONTINUE_GRACE_SECONDS = _get_float(
+        "CLAUDE_CODE_AUTO_CONTINUE_GRACE_SECONDS",
+        15.0,
+        min_value=0.0,
+    )
+    CLAUDE_CODE_CCUSAGE_TIMEOUT_SECONDS = _get_float(
+        "CLAUDE_CODE_CCUSAGE_TIMEOUT_SECONDS",
+        15.0,
+        min_value=1.0,
+    )
 
     @classmethod
     def validate(cls):

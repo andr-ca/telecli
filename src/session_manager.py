@@ -1,209 +1,524 @@
 """
-Session manager for coordinating multiple terminal sessions
+Session manager for coordinating multiple terminal sessions.
 """
+from __future__ import annotations
+
+import json
 import logging
+import secrets
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
-from src.config import Config
-from src.terminal import TerminalSession
+
 from src.ai_proxy import AIProxy
-from src.llm_providers import *  # Register all providers
+from src.claude_code_auto_continue import ClaudeCodeAutoContinue
+from src.config import Config
 from src.llm_provider import LLMProviderFactory
+from src.llm_providers import *  # Register all providers
+from src.terminal import TerminalSession, TmuxSession
+from src.tmux import create_tmux_session, list_tmux_sessions, tmux_session_exists
 
 logger = logging.getLogger(__name__)
 
 
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+@dataclass
+class SessionRecord:
+    """Session metadata exposed to the UI."""
+
+    session_id: str
+    name: str
+    backend: str = "telecli"
+    created_at: str = field(default_factory=_utc_now_iso)
+    tmux_session_name: Optional[str] = None
+
+
 class SessionManager:
-    """Manages multiple terminal sessions"""
+    """Manages multiple terminal sessions."""
 
-    def __init__(self, max_sessions: int = Config.TERMINAL_MAX_SESSIONS):
+    def __init__(
+        self,
+        max_sessions: int = Config.TERMINAL_MAX_SESSIONS,
+        registry_path: Optional[Path] = None,
+    ):
         self.max_sessions = max_sessions
-        self.sessions: dict[str, TerminalSession] = {}
+        self.registry_path = Path(registry_path) if registry_path else Path(Config.SESSION_REGISTRY_PATH)
+        self.sessions: dict[str, TerminalSession | TmuxSession] = {}
+        self.session_records: dict[str, SessionRecord] = {}
         self.session_count = 0
-        self.ai_proxies: dict[str, AIProxy] = {}  # AI proxy per session
-        self.monitor_callback = None  # Callback for LLM monitoring
+        self.ai_proxies: dict[str, AIProxy] = {}
+        self.claude_code_auto_controllers: dict[str, ClaudeCodeAutoContinue] = {}
+        self.monitor_callback = None
+        self._load_persisted_tmux_records()
 
-    async def get_session(self, session_id: str) -> TerminalSession:
-        """Get or create a session for the given ID"""
-        if session_id not in self.sessions:
-            if len(self.sessions) >= self.max_sessions:
-                logger.warning("Max sessions reached, closing oldest session")
-                oldest_id = next(iter(self.sessions))
-                await self.close_session(oldest_id)
+    def _load_persisted_tmux_records(self) -> None:
+        if not self.registry_path.exists():
+            return
 
+        try:
+            payload = json.loads(self.registry_path.read_text())
+        except Exception as e:
+            logger.error("Failed to load session registry %s: %s", self.registry_path, e)
+            return
+
+        for item in payload.get("sessions", []):
+            if item.get("backend") != "tmux":
+                continue
+
+            record = SessionRecord(
+                session_id=item["session_id"],
+                name=item.get("name") or item["session_id"],
+                backend="tmux",
+                created_at=item.get("created_at") or _utc_now_iso(),
+                tmux_session_name=item.get("tmux_session_name"),
+            )
+            self.session_records[record.session_id] = record
+
+    def _save_persisted_tmux_records(self) -> None:
+        self.registry_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "sessions": [
+                asdict(record)
+                for record in self.session_records.values()
+                if record.backend == "tmux"
+            ]
+        }
+        self.registry_path.write_text(json.dumps(payload, indent=2, sort_keys=True))
+
+    @staticmethod
+    def _generate_session_id(prefix: str) -> str:
+        return f"{prefix}-{secrets.token_hex(16)}"
+
+    def _ensure_record(
+        self,
+        session_id: str,
+        *,
+        backend: str = "telecli",
+        name: Optional[str] = None,
+        tmux_session_name: Optional[str] = None,
+    ) -> SessionRecord:
+        record = self.session_records.get(session_id)
+        if record:
+            return record
+
+        record = SessionRecord(
+            session_id=session_id,
+            name=name or session_id,
+            backend=backend,
+            tmux_session_name=tmux_session_name,
+        )
+        self.session_records[session_id] = record
+        if backend == "tmux":
+            self._save_persisted_tmux_records()
+        return record
+
+    def _resolve_record(self, session_id: str) -> SessionRecord:
+        record = self.session_records.get(session_id)
+        if record:
+            return record
+
+        active_session = self.sessions.get(session_id)
+        if isinstance(active_session, TmuxSession):
+            return self._ensure_record(
+                session_id,
+                backend="tmux",
+                tmux_session_name=active_session.tmux_session_name,
+            )
+
+        return self._ensure_record(session_id, backend="telecli")
+
+    def _prune_runtime_session(self, session_id: str) -> None:
+        runtime = self.sessions.get(session_id)
+        if runtime and not runtime.is_active:
+            self.sessions.pop(session_id, None)
+
+    def _session_available(self, record: SessionRecord) -> bool:
+        runtime = self.sessions.get(record.session_id)
+        if runtime and runtime.is_active:
+            return True
+        if record.backend == "tmux" and record.tmux_session_name:
+            return tmux_session_exists(record.tmux_session_name)
+        return False
+
+    def get_session_summary(self, session_id: str) -> dict:
+        record = self._resolve_record(session_id)
+        runtime = self.sessions.get(session_id)
+        is_active = bool(runtime and runtime.is_active)
+        available = self._session_available(record)
+
+        if runtime:
+            shell = runtime.shell
+        elif record.backend == "tmux" and record.tmux_session_name:
+            shell = f"tmux:{record.tmux_session_name}"
+        else:
+            shell = Config.TERMINAL_SHELL
+
+        return {
+            "id": record.session_id,
+            "name": record.name,
+            "backend": record.backend,
+            "created_at": record.created_at,
+            "shell": shell,
+            "is_active": is_active,
+            "available": available,
+            "tmux_session_name": record.tmux_session_name,
+        }
+
+    def list_sessions(self) -> list[dict]:
+        for session_id in list(self.sessions):
+            self._prune_runtime_session(session_id)
+
+        summaries = []
+        seen_ids: set[str] = set()
+
+        for session_id, session in self.sessions.items():
+            if not session.is_active:
+                continue
+            seen_ids.add(session_id)
+            summaries.append(self.get_session_summary(session_id))
+
+        for record in self.session_records.values():
+            if record.session_id in seen_ids:
+                continue
+            summaries.append(self.get_session_summary(record.session_id))
+
+        return sorted(
+            summaries,
+            key=lambda session: (
+                session["backend"] != "tmux",
+                session["name"].lower(),
+                session["id"],
+            ),
+        )
+
+    def list_machine_tmux_sessions(self) -> list[dict]:
+        imported_by_tmux_name = {
+            record.tmux_session_name: record
+            for record in self.session_records.values()
+            if record.backend == "tmux" and record.tmux_session_name
+        }
+
+        machine_sessions = []
+        for session in list_tmux_sessions():
+            imported_record = imported_by_tmux_name.get(session["name"])
+            machine_sessions.append(
+                {
+                    "name": session["name"],
+                    "windows": session["windows"],
+                    "attached": session["attached"],
+                    "imported": imported_record is not None,
+                    "imported_session_id": imported_record.session_id if imported_record else None,
+                    "imported_name": imported_record.name if imported_record else None,
+                }
+            )
+
+        return machine_sessions
+
+    def create_session_entry(self, name: Optional[str] = None) -> dict:
+        session_id = self._generate_session_id("web")
+        self._ensure_record(session_id, backend="telecli", name=(name or session_id).strip())
+        return self.get_session_summary(session_id)
+
+    def rename_session(self, session_id: str, name: str) -> dict:
+        clean_name = name.strip()
+        if not clean_name:
+            raise ValueError("Session name cannot be empty")
+
+        record = self._resolve_record(session_id)
+        record.name = clean_name
+        if record.backend == "tmux":
+            self._save_persisted_tmux_records()
+        return self.get_session_summary(session_id)
+
+    def import_tmux_session(self, tmux_session_name: str, name: Optional[str] = None) -> dict:
+        clean_tmux_name = tmux_session_name.strip()
+        if not clean_tmux_name:
+            raise ValueError("tmux session name cannot be empty")
+
+        for record in self.session_records.values():
+            if record.backend == "tmux" and record.tmux_session_name == clean_tmux_name:
+                return self.get_session_summary(record.session_id)
+
+        if not any(session["name"] == clean_tmux_name for session in self.list_machine_tmux_sessions()):
+            raise KeyError(f"tmux session {clean_tmux_name} does not exist")
+
+        session_id = self._generate_session_id("tmux")
+        self._ensure_record(
+            session_id,
+            backend="tmux",
+            name=(name or clean_tmux_name).strip(),
+            tmux_session_name=clean_tmux_name,
+        )
+        return self.get_session_summary(session_id)
+
+    def create_tmux_session_entry(self, tmux_session_name: str, name: Optional[str] = None) -> dict:
+        clean_tmux_name = tmux_session_name.strip()
+        if not clean_tmux_name:
+            raise ValueError("tmux session name cannot be empty")
+
+        if any(
+            record.backend == "tmux" and record.tmux_session_name == clean_tmux_name
+            for record in self.session_records.values()
+        ):
+            raise ValueError(f"tmux session already imported: {clean_tmux_name}")
+
+        create_tmux_session(clean_tmux_name)
+        session_id = self._generate_session_id("tmux")
+        self._ensure_record(
+            session_id,
+            backend="tmux",
+            name=(name or clean_tmux_name).strip(),
+            tmux_session_name=clean_tmux_name,
+        )
+        return self.get_session_summary(session_id)
+
+    async def detach_tmux_session(self, session_id: str) -> dict:
+        record = self.session_records.get(session_id)
+        if not record:
+            raise KeyError("Session not found")
+        if record.backend != "tmux":
+            raise ValueError("Only tmux sessions can be detached")
+
+        await self.close_session(session_id)
+        return self.get_session_summary(session_id)
+
+    async def delete_session_entry(self, session_id: str) -> None:
+        if session_id not in self.session_records and session_id not in self.sessions:
+            logger.debug("Session entry %s already removed", session_id)
+            return
+
+        await self.close_session(session_id)
+
+        record = self.session_records.pop(session_id, None)
+        if record and record.backend == "tmux":
+            self._save_persisted_tmux_records()
+
+    async def get_session(self, session_id: str) -> TerminalSession | TmuxSession:
+        """Get or create a session for the given ID."""
+        self._prune_runtime_session(session_id)
+        if session_id in self.sessions:
+            return self.sessions[session_id]
+
+        if len(self.sessions) >= self.max_sessions:
+            logger.warning("Max sessions reached, closing oldest active session")
+            oldest_id = next(iter(self.sessions))
+            await self.close_session(oldest_id)
+
+        record = self.session_records.get(session_id)
+        if not record:
+            record = self._ensure_record(session_id, backend="telecli")
+
+        if record.backend == "tmux":
+            if not record.tmux_session_name or not tmux_session_exists(record.tmux_session_name):
+                raise RuntimeError(f"tmux session not available: {record.tmux_session_name}")
+            session = TmuxSession(session_id, record.tmux_session_name)
+        else:
             session = TerminalSession(session_id)
-            if not await session.start():
-                raise RuntimeError(f"Failed to start session {session_id}")
-            
-            self.sessions[session_id] = session
-            self.session_count += 1
-            logger.info(f"Created new session {session_id}, total sessions: {len(self.sessions)}")
 
-        return self.sessions[session_id]
+        if not await session.start():
+            raise RuntimeError(f"Failed to start session {session_id}")
+
+        self.sessions[session_id] = session
+        self.session_count += 1
+        logger.info(
+            "Created new %s session %s, total active sessions: %s",
+            record.backend,
+            session_id,
+            len(self.sessions),
+        )
+        return session
 
     async def send_input(self, session_id: str, text: str, newline: bool = True, from_ai: bool = False) -> None:
-        """Send input to a session"""
+        """Send input to a session."""
         session = await self.get_session(session_id)
-        logger.debug(f"SessionManager.send_input called with: text={repr(text[:100])}, newline={newline}, from_ai={from_ai}")
+        logger.debug(
+            "SessionManager.send_input called with: text=%r, newline=%s, from_ai=%s",
+            text[:100],
+            newline,
+            from_ai,
+        )
         await session.send_input(text, newline)
-        logger.debug(f"✓ Sent input to session {session_id} (from_ai={from_ai})")
+        logger.debug("Sent input to session %s (from_ai=%s)", session_id, from_ai)
+
+    async def _send_text_like_user(self, session_id: str, text: str) -> None:
+        """Send text and submit it the same way a user would."""
+        logger.info("Sending automation text to session %s: %r", session_id, text[:100])
+        for char in text:
+            await self.send_input(session_id, char, newline=False, from_ai=True)
+        await self.send_input(session_id, "\r", newline=False, from_ai=True)
+        logger.info("Submitted automation text for session %s", session_id)
 
     async def resize_session(self, session_id: str, rows: int, cols: int) -> None:
-        """Resize a terminal session"""
+        """Resize a terminal session."""
         if session_id in self.sessions:
             await self.sessions[session_id].resize(rows, cols)
-            logger.debug(f"Resized session {session_id} to {rows}x{cols}")
+            logger.debug("Resized session %s to %sx%s", session_id, rows, cols)
 
     async def get_output_stream(self, session_id: str):
-        """Get output stream from a session"""
+        """Get output stream from a session."""
         session = await self.get_session(session_id)
         async for chunk in session.get_output_stream():
             yield chunk
 
     async def enable_ai_proxy(
-        self, 
-        session_id: str, 
+        self,
+        session_id: str,
         provider_name: Optional[str] = None,
-        system_prompt: Optional[str] = None
+        system_prompt: Optional[str] = None,
     ) -> bool:
-        """Enable AI proxy for a session"""
-        if session_id not in self.sessions:
-            logger.error(f"Session {session_id} not found")
-            return False
-        
-        # Use config provider or specified provider
+        """Enable AI proxy for a session."""
+        if session_id not in self.session_records and session_id not in self.sessions:
+            self._ensure_record(session_id, backend="telecli")
+
         provider_name = provider_name or Config.AI_PROXY_PROVIDER
-        
-        # Create LLM provider
         llm_provider = LLMProviderFactory.create(provider_name)
         if not llm_provider:
-            logger.error(f"Failed to create LLM provider: {provider_name}")
+            logger.error("Failed to create LLM provider: %s", provider_name)
             return False
-        
-        # Get list of fallback providers (all available except the primary one)
+
         available_providers = LLMProviderFactory.get_available_providers()
         fallback_names = [name for name, _ in available_providers if name != provider_name]
-        
-        # Use custom system prompt or config default
         prompt = system_prompt or Config.AI_PROXY_SYSTEM_PROMPT
-        
-        # Create AI proxy with fallback providers
+
         ai_proxy = AIProxy(
             llm_provider=llm_provider,
             system_prompt=prompt,
             max_iterations=Config.AI_PROXY_MAX_ITERATIONS,
-            fallback_providers=fallback_names
+            fallback_provider_names=fallback_names,
         )
-        
-        # Set callback to send input to terminal
+
         async def send_input(text: str):
-            logger.info(f"💬 AI Proxy callback invoked to send text to terminal: {repr(text[:100])}")
-            # Send character by character like user input, then carriage return
-            for char in text:
-                logger.debug(f"Sending character: {repr(char)}")
-                await self.send_input(session_id, char, newline=False, from_ai=True)
-            # Send carriage return to submit
-            logger.info(f"📤 Sending carriage return to submit")
-            await self.send_input(session_id, "\r", newline=False, from_ai=True)
-            logger.info(f"✓ Text '{text}' + CR sent to session {session_id}")
-        
+            logger.info("AI proxy sending text to terminal: %r", text[:100])
+            await self._send_text_like_user(session_id, text)
+
         ai_proxy.set_input_callback(send_input)
-        
-        # Set up monitoring callback if available
-        if hasattr(self, 'monitor_callback') and self.monitor_callback:
+
+        if self.monitor_callback:
             ai_proxy.set_monitor_callback(self.monitor_callback)
-        
+
         ai_proxy.enable()
-        
         self.ai_proxies[session_id] = ai_proxy
-        logger.info(f"Enabled AI proxy for session {session_id} with provider {provider_name}, fallbacks: {fallback_names if fallback_names else 'none'}")
+        logger.info(
+            "Enabled AI proxy for session %s with provider %s, fallbacks: %s",
+            session_id,
+            provider_name,
+            fallback_names if fallback_names else "none",
+        )
         return True
-    
+
     async def disable_ai_proxy(self, session_id: str):
-        """Disable AI proxy for a session"""
+        """Disable AI proxy for a session."""
         if session_id not in self.ai_proxies:
-            logger.debug(f"AI proxy for session {session_id} already disabled or doesn't exist")
+            logger.debug("AI proxy for session %s already disabled or doesn't exist", session_id)
             return
-            
+
         try:
             self.ai_proxies[session_id].disable()
         except Exception as e:
-            logger.error(f"Error disabling AI proxy for session {session_id}: {e}")
+            logger.error("Error disabling AI proxy for session %s: %s", session_id, e)
         finally:
-            # Always remove from ai_proxies dict
-            try:
-                if session_id in self.ai_proxies:
-                    del self.ai_proxies[session_id]
-                    logger.info(f"Disabled AI proxy for session {session_id}")
-            except Exception as e:
-                logger.error(f"Error removing AI proxy {session_id} from dict: {e}")
-    
+            self.ai_proxies.pop(session_id, None)
+            logger.info("Disabled AI proxy for session %s", session_id)
+
     def get_ai_proxy(self, session_id: str) -> Optional[AIProxy]:
-        """Get AI proxy for a session"""
+        """Get AI proxy for a session."""
         return self.ai_proxies.get(session_id)
 
+    async def enable_claude_code_auto_continue(self, session_id: str) -> bool:
+        """Enable Claude Code usage-reset auto-continue for a session."""
+        session = await self.get_session(session_id)
+        controller = self.claude_code_auto_controllers.get(session_id)
+        if not controller:
+            controller = ClaudeCodeAutoContinue()
+            controller.set_input_callback(lambda text: self._send_text_like_user(session_id, text))
+            self.claude_code_auto_controllers[session_id] = controller
+
+        controller.enable()
+        controller.prime_with_output(session.get_recent_output())
+        logger.info("Enabled Claude Code auto-continue for session %s", session_id)
+        return True
+
+    async def disable_claude_code_auto_continue(self, session_id: str):
+        """Disable Claude Code usage-reset auto-continue for a session."""
+        controller = self.claude_code_auto_controllers.get(session_id)
+        if not controller:
+            logger.debug("Claude Code auto-continue for session %s already disabled", session_id)
+            return
+
+        try:
+            controller.disable()
+        finally:
+            self.claude_code_auto_controllers.pop(session_id, None)
+            logger.info("Disabled Claude Code auto-continue for session %s", session_id)
+
+    def get_claude_code_auto_continue(self, session_id: str) -> Optional[ClaudeCodeAutoContinue]:
+        """Get Claude Code auto-continue controller for a session."""
+        return self.claude_code_auto_controllers.get(session_id)
+
     async def close_session(self, session_id: str) -> None:
-        """Close a specific session"""
-        # Check if session exists before attempting cleanup
+        """Close an active runtime session but keep its metadata entry."""
         session_exists = session_id in self.sessions
         ai_proxy_exists = session_id in self.ai_proxies
-        
-        if not session_exists and not ai_proxy_exists:
-            logger.debug(f"Session {session_id} already closed or doesn't exist")
+        claude_auto_exists = session_id in self.claude_code_auto_controllers
+
+        if not session_exists and not ai_proxy_exists and not claude_auto_exists:
+            logger.debug("Session %s already closed or doesn't exist", session_id)
             return
-            
-        logger.info(f"Closing session {session_id} (session_exists={session_exists}, ai_proxy_exists={ai_proxy_exists})")
-        
+
+        logger.info(
+            "Closing session %s (session_exists=%s, ai_proxy_exists=%s, claude_auto_exists=%s)",
+            session_id,
+            session_exists,
+            ai_proxy_exists,
+            claude_auto_exists,
+        )
+
         try:
-            # Disable AI proxy if active
             if ai_proxy_exists:
                 try:
                     await self.disable_ai_proxy(session_id)
                 except Exception as e:
-                    logger.error(f"Error disabling AI proxy for session {session_id}: {e}")
-            
-            # Stop the terminal session if it exists
+                    logger.error("Error disabling AI proxy for session %s: %s", session_id, e)
+
+            if claude_auto_exists:
+                try:
+                    await self.disable_claude_code_auto_continue(session_id)
+                except Exception as e:
+                    logger.error("Error disabling Claude Code auto-continue for session %s: %s", session_id, e)
+
             if session_exists:
                 try:
                     session = self.sessions[session_id]
                     await session.stop()
-                    logger.debug(f"Successfully stopped terminal session {session_id}")
+                    logger.debug("Successfully stopped terminal session %s", session_id)
                 except Exception as e:
-                    logger.error(f"Error stopping terminal session {session_id}: {e}")
-                
-        except Exception as e:
-            logger.error(f"Error during session cleanup {session_id}: {e}")
+                    logger.error("Error stopping session %s: %s", session_id, e)
         finally:
-            # Always remove from sessions dict if it exists, even if there were errors
             if session_exists:
-                try:
-                    del self.sessions[session_id]
-                    logger.info(f"Closed session {session_id}, remaining sessions: {len(self.sessions)}")
-                except KeyError:
-                    # Session was already removed by another thread/process
-                    logger.debug(f"Session {session_id} was already removed from sessions dict")
-                except Exception as e:
-                    logger.error(f"Unexpected error removing session {session_id} from sessions dict: {e}")
-            else:
-                logger.debug(f"Session {session_id} was not in sessions dict, cleanup completed")
+                self.sessions.pop(session_id, None)
+                logger.info("Closed active runtime for session %s, remaining sessions: %s", session_id, len(self.sessions))
 
     async def close_all(self) -> None:
-        """Close all sessions"""
+        """Close all active runtime sessions."""
         session_ids = list(self.sessions.keys())
         for session_id in session_ids:
             await self.close_session(session_id)
         logger.info("All sessions closed")
 
     def get_stats(self) -> dict:
-        """Get session statistics"""
+        """Get session statistics."""
         return {
             "active_sessions": len(self.sessions),
             "max_sessions": self.max_sessions,
             "total_created": self.session_count,
         }
-    
+
     def set_monitor_callback(self, callback):
-        """Set monitoring callback for all AI proxies"""
+        """Set monitoring callback for all AI proxies."""
         self.monitor_callback = callback
-        # Update existing AI proxies
         for ai_proxy in self.ai_proxies.values():
             ai_proxy.set_monitor_callback(callback)
