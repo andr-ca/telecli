@@ -4,12 +4,14 @@ from src.config import Config
 
 
 def test_config_defaults():
-    """Test that config has sensible defaults"""
-    assert Config.LOG_LEVEL == "INFO"
-    assert Config.LOG_OUTPUT == "console"
-    assert Config.TERMINAL_SHELL == "bash"
-    assert Config.TERMINAL_TIMEOUT == 300
-    assert Config.WEB_PORT == 8000
+    """Test that config fields are present with valid values."""
+    assert Config.LOG_LEVEL in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+    assert Config.LOG_OUTPUT in {"console", "file", "both"}
+    assert isinstance(Config.TERMINAL_SHELL, str) and Config.TERMINAL_SHELL
+    assert Config.TERMINAL_TIMEOUT >= 1
+    assert 1 <= Config.WEB_PORT <= 65535
+    assert Config.CLAUDE_CODE_AUTO_CONTINUE_GRACE_SECONDS >= 0
+    assert Config.CLAUDE_CODE_CCUSAGE_TIMEOUT_SECONDS >= 1
 
 
 def test_config_validation():

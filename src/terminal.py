@@ -5,6 +5,7 @@ import pexpect
 import logging
 import asyncio
 import re
+import shutil
 from typing import Optional, AsyncIterator
 from src.config import Config
 
@@ -23,7 +24,9 @@ class TerminalSession:
         self.shell = shell or Config.TERMINAL_SHELL
         self.process: Optional[pexpect.spawn] = None
         self.is_active = False
-        self.output_queue: asyncio.Queue = asyncio.Queue(maxsize=100)  # Limit queue size for better performance
+        self._listeners: set[asyncio.Queue] = set()
+        self._history: list[str] = []
+        self._max_history = 50  # Keep last 50 chunks for context
         self.read_task: Optional[asyncio.Task] = None
 
     def _clean_output(self, text: str) -> str:
@@ -49,40 +52,61 @@ class TerminalSession:
                             # Only log in debug mode to reduce overhead
                             if logger.isEnabledFor(logging.DEBUG):
                                 logger.debug(f"Read {len(cleaned_chunk)} bytes from session {self.session_id}")
-                            await self.output_queue.put(cleaned_chunk)
+
+                            # Update history
+                            self._history.append(cleaned_chunk)
+                            if len(self._history) > self._max_history:
+                                self._history.pop(0)
+
+                            # Broadcast to all listeners
+                            for queue in list(self._listeners):
+                                try:
+                                    queue.put_nowait(cleaned_chunk)
+                                except asyncio.QueueFull:
+                                    pass  # Skip if client is too slow
                 except pexpect.TIMEOUT:
                     # No data available, very small delay to avoid busy loop but maintain responsiveness
                     await asyncio.sleep(0.001)  # Reduced from 0.05 to 0.001 seconds
                 except pexpect.EOF:
                     logger.warning(f"EOF reached in session {self.session_id}")
                     self.is_active = False
-                    await self.output_queue.put(None)  # Signal end of stream
+                    # Signal end to all listeners
+                    for queue in list(self._listeners):
+                        try:
+                            queue.put_nowait(None)
+                        except asyncio.QueueFull:
+                            pass
                     break
                 except Exception as e:
                     logger.error(f"Error reading from session {self.session_id}: {e}")
                     break
         finally:
             logger.info(f"Read loop ended for session {self.session_id}")
-            await self.output_queue.put(None)  # Signal end of stream
+            # Signal end of stream
+            for queue in list(self._listeners):
+                try:
+                    queue.put_nowait(None)
+                except asyncio.QueueFull:
+                    pass
 
     async def start(self) -> bool:
         """Start a terminal session with background output reading"""
         try:
             # Spawn a shell process
             self.process = pexpect.spawn(
-                self.shell, 
+                self.shell,
                 encoding=Config.TERMINAL_ENCODING,
                 timeout=None  # No timeout for continuous reading
             )
-            
+
             # Set up terminal size for proper rendering
             self.process.setwinsize(24, 80)
-            
+
             self.is_active = True
-            
+
             # Start background read loop
             self.read_task = asyncio.create_task(self._read_loop())
-            
+
             logger.info(f"Started terminal session {self.session_id} with shell: {self.shell}")
             return True
         except Exception as e:
@@ -93,9 +117,16 @@ class TerminalSession:
     async def get_output_stream(self) -> AsyncIterator[str]:
         """Async generator that yields output as it becomes available"""
         logger.debug(f"Starting output stream for session {self.session_id}")
+        queue = asyncio.Queue(maxsize=1000)  # Larger buffer for listeners
+        self._listeners.add(queue)
+
+        # Replay history first
+        for chunk in self._history:
+            yield chunk
+
         try:
             while True:
-                chunk = await self.output_queue.get()
+                chunk = await queue.get()
                 if chunk is None:  # End of stream
                     logger.debug(f"End of output stream for session {self.session_id}")
                     break
@@ -103,6 +134,12 @@ class TerminalSession:
         except Exception as e:
             logger.error(f"Error in output stream for session {self.session_id}: {e}")
             raise
+        finally:
+            self._listeners.discard(queue)
+
+    def get_recent_output(self) -> str:
+        """Return retained output history as a single string."""
+        return ''.join(self._history)
 
     async def resize(self, rows: int, cols: int) -> None:
         """Resize the terminal window"""
@@ -185,3 +222,46 @@ class TerminalSession:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self.stop()
+
+
+class TmuxSession(TerminalSession):
+    """Interactive session backed by an existing tmux session."""
+
+    def __init__(self, session_id: str, tmux_session_name: str):
+        super().__init__(session_id=session_id, shell="tmux")
+        self.tmux_session_name = tmux_session_name
+        self.shell = f"tmux:{tmux_session_name}"
+
+    async def start(self) -> bool:
+        """Attach a tmux client process to an existing tmux session."""
+        tmux_path = shutil.which("tmux")
+        if not tmux_path:
+            logger.error("tmux is not installed; cannot start tmux-backed session %s", self.session_id)
+            self.is_active = False
+            return False
+
+        try:
+            self.process = pexpect.spawn(
+                tmux_path,
+                ["attach-session", "-t", self.tmux_session_name],
+                encoding=Config.TERMINAL_ENCODING,
+                timeout=None,
+            )
+            self.process.setwinsize(24, 80)
+            self.is_active = True
+            self.read_task = asyncio.create_task(self._read_loop())
+            logger.info(
+                "Attached tmux-backed session %s to tmux target %s",
+                self.session_id,
+                self.tmux_session_name,
+            )
+            return True
+        except Exception as e:
+            logger.error(
+                "Failed to attach tmux-backed session %s to %s: %s",
+                self.session_id,
+                self.tmux_session_name,
+                e,
+            )
+            self.is_active = False
+            return False

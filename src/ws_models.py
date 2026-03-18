@@ -19,11 +19,19 @@ class ProxyCommand(BaseModel):
     system_prompt: Optional[str] = None
 
 
+class ClaudeCodeCommand(BaseModel):
+    """Claude Code auto-continue control command"""
+    enable: Optional[bool] = None
+    disable: Optional[bool] = None
+    screen_text: Optional[str] = None
+
+
 class WebSocketMessage(BaseModel):
     """WebSocket message from client"""
     input: Optional[str] = None
     resize: Optional[ResizePayload] = None
     proxy: Optional[ProxyCommand] = None
+    claude_code: Optional[ClaudeCodeCommand] = None
 
     class Config:
         extra = "allow"  # Allow additional fields for forward compatibility
