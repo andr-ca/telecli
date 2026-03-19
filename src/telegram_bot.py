@@ -94,6 +94,30 @@ COMMAND_SPECS = [
         "help": "Repeat the last terminal output shown in Telegram for the current session.",
     },
     {
+        "command": "snapshot",
+        "description": "Show tmux snapshot",
+        "usage": "/snapshot",
+        "help": "Show the current tmux pane snapshot for the active session.",
+    },
+    {
+        "command": "tail",
+        "description": "Show recent output",
+        "usage": "/tail [lines]",
+        "help": "Show recent tmux pane output for the active session.",
+    },
+    {
+        "command": "send",
+        "description": "Send exact text",
+        "usage": "/send <text>",
+        "help": "Paste exact text into the active session without shell parsing.",
+    },
+    {
+        "command": "key",
+        "description": "Send a special key",
+        "usage": "/key <enter|esc|tab|up|down|ctrl-c>",
+        "help": "Send a named special key to the active session.",
+    },
+    {
         "command": "features",
         "description": "Show feature status",
         "usage": "/features",
@@ -716,6 +740,70 @@ async def repeat_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await _reply_in_chunks(update, last_output)
 
 
+async def snapshot_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show the current tmux pane snapshot for the active session."""
+    user_id = update.effective_user.id
+    if not is_telegram_user_allowed(user_id):
+        await update.message.reply_text("❌ Unauthorized")
+        return
+
+    session_id = _get_current_session_id(user_id)
+    snapshot = _require_session_manager().capture_session_snapshot(session_id, lines=80)
+    await _reply_in_chunks(update, _strip_ansi(snapshot))
+
+
+async def tail_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show the most recent tmux output lines for the active session."""
+    user_id = update.effective_user.id
+    if not is_telegram_user_allowed(user_id):
+        await update.message.reply_text("❌ Unauthorized")
+        return
+
+    session_id = _get_current_session_id(user_id)
+    lines = 20
+    if context.args:
+        try:
+            lines = max(1, int(context.args[0]))
+        except ValueError:
+            await update.message.reply_text("Usage: /tail [lines]")
+            return
+
+    tail_output = _require_session_manager().tail_session_output(session_id, lines=lines)
+    await _reply_in_chunks(update, _strip_ansi(tail_output))
+
+
+async def send_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send exact text into the active session without newline semantics."""
+    user_id = update.effective_user.id
+    if not is_telegram_user_allowed(user_id):
+        await update.message.reply_text("❌ Unauthorized")
+        return
+    if not context.args:
+        await update.message.reply_text("Usage: /send <text>")
+        return
+
+    session_id = _get_current_session_id(user_id)
+    text = " ".join(context.args)
+    await _require_session_manager().send_exact_input(session_id, text)
+    await update.message.reply_text("Sent text to session")
+
+
+async def key_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send a named special key to the active session."""
+    user_id = update.effective_user.id
+    if not is_telegram_user_allowed(user_id):
+        await update.message.reply_text("❌ Unauthorized")
+        return
+    if not context.args:
+        await update.message.reply_text("Usage: /key <enter|esc|tab|up|down|ctrl-c>")
+        return
+
+    session_id = _get_current_session_id(user_id)
+    key_name = context.args[0].lower()
+    _require_session_manager().send_special_key(session_id, key_name)
+    await update.message.reply_text(f"Sent key {key_name}")
+
+
 def _render_mode_status_text(user_id: int) -> str:
     state = _get_user_sessions(user_id)
     session_id = _get_current_session_id(user_id)
@@ -938,6 +1026,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             "newtmux": newtmux_command,
             "detach": detach_command,
             "repeat": repeat_command,
+            "snapshot": snapshot_command,
+            "tail": tail_command,
+            "send": send_command,
+            "key": key_command,
             "features": features_command,
             "mode": mode_command,
             "status": status_command,
@@ -955,6 +1047,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     try:
         await update.message.chat.send_action("typing")
+
+        if _get_session_mode(user_id, session_id) == "agent":
+            manager = _require_session_manager()
+            await manager.send_exact_input(session_id, command)
+            manager.send_special_key(session_id, "enter")
+            await update.message.reply_text("Sent to agent session")
+            logger.info(f"User {user_id} sent agent-mode text to session {session_id}: {command[:50]}...")
+            return
 
         output = await _execute_session_command(session_id, command)
         _get_user_sessions(user_id).last_outputs[session_id] = output
@@ -998,6 +1098,10 @@ async def main(shared_session_manager: SessionManager | None = None):
     app.add_handler(CommandHandler("newtmux", newtmux_command))
     app.add_handler(CommandHandler("detach", detach_command))
     app.add_handler(CommandHandler("repeat", repeat_command))
+    app.add_handler(CommandHandler("snapshot", snapshot_command))
+    app.add_handler(CommandHandler("tail", tail_command))
+    app.add_handler(CommandHandler("send", send_command))
+    app.add_handler(CommandHandler("key", key_command))
     app.add_handler(CommandHandler("features", features_command))
     app.add_handler(CommandHandler("mode", mode_command))
     app.add_handler(CommandHandler("status", status_command))

@@ -109,6 +109,8 @@ class FakeApplicationBuilder:
 class FakeSessionManager:
     def __init__(self):
         self.sent_inputs = []
+        self.exact_inputs = []
+        self.special_keys = []
         self.created_sessions = []
         self.deleted_sessions = []
         self.renamed_sessions = []
@@ -124,6 +126,8 @@ class FakeSessionManager:
         self.agent_recommendations = {}
         self.runtime_sessions = {"777": FakeRuntimeSession(history="prompt$ ")}
         self.stream_chunks = {"777": ["prompt$ ", "pwd\n/home/demo\nprompt$ "]}
+        self.snapshots = {}
+        self.tails = {}
         self.machine_tmux_sessions = [
             {
                 "name": "ops-shell",
@@ -149,6 +153,12 @@ class FakeSessionManager:
 
     async def send_input(self, session_id: str, text: str, newline: bool = True, from_ai: bool = False):
         self.sent_inputs.append((session_id, text, newline, from_ai))
+
+    async def send_exact_input(self, session_id: str, text: str):
+        self.exact_inputs.append((session_id, text))
+
+    def send_special_key(self, session_id: str, key_name: str):
+        self.special_keys.append((session_id, key_name))
 
     async def get_output_stream(self, session_id: str):
         for chunk in self.stream_chunks.get(session_id, []):
@@ -226,6 +236,8 @@ class FakeSessionManager:
         self.imported_tmux.append(session)
         self.runtime_sessions.setdefault(session_id, FakeRuntimeSession(history="tmux$ "))
         self.stream_chunks.setdefault(session_id, ["tmux$ ", "echo hi from tmux\nhi from tmux\ntmux$ "])
+        self.snapshots.setdefault(session_id, "Claude is waiting\n> ")
+        self.tails.setdefault(session_id, "Claude is waiting")
 
         for tmux_session in self.machine_tmux_sessions:
             if tmux_session["name"] == tmux_session_name:
@@ -285,6 +297,12 @@ class FakeSessionManager:
                 "signature": None,
             },
         )
+
+    def capture_session_snapshot(self, session_id: str, *, lines: int = 80):
+        return self.snapshots[session_id]
+
+    def tail_session_output(self, session_id: str, *, lines: int = 20):
+        return self.tails[session_id]
 
     async def enable_ai_proxy(self, session_id: str, provider_name: str | None = None, system_prompt: str | None = None):
         self.ai_enabled.append((session_id, provider_name, system_prompt))
@@ -639,6 +657,92 @@ async def test_status_command_reports_mode_and_backend(monkeypatch):
     assert "Mode: agent" in rendered
     assert "Backend: tmux" in rendered
     assert "tmux target: ops-shell" in rendered
+
+
+@pytest.mark.asyncio
+async def test_handle_message_uses_exact_send_in_agent_mode(monkeypatch):
+    """Agent mode should send raw text plus an explicit Enter key instead of shell command execution."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+    await telegram_bot.attachtmux_command(
+        FakeUpdate(777, "/attachtmux ops-shell Ops Shell"),
+        SimpleNamespace(args=["ops-shell", "Ops", "Shell"]),
+    )
+    telegram_bot._get_user_sessions(777).session_modes["tmux-1"] = "agent"
+
+    update = FakeUpdate(777, "continue")
+    await telegram_bot.handle_message(update, SimpleNamespace())
+
+    assert manager.exact_inputs == [("tmux-1", "continue")]
+    assert manager.special_keys == [("tmux-1", "enter")]
+    assert manager.sent_inputs == []
+    assert update.message.replies == [("Sent to agent session", {})]
+
+
+@pytest.mark.asyncio
+async def test_snapshot_command_returns_tmux_capture(monkeypatch):
+    """Snapshot should return the current tmux pane text for agent sessions."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+    await telegram_bot.attachtmux_command(
+        FakeUpdate(777, "/attachtmux ops-shell Ops Shell"),
+        SimpleNamespace(args=["ops-shell", "Ops", "Shell"]),
+    )
+
+    update = FakeUpdate(777, "/snapshot")
+    await telegram_bot.snapshot_command(update, SimpleNamespace(args=[]))
+
+    assert update.message.replies == [("Claude is waiting\n> ", {})]
+
+
+@pytest.mark.asyncio
+async def test_tail_command_returns_recent_tmux_output(monkeypatch):
+    """Tail should return recent pane output for the current tmux-backed session."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+    await telegram_bot.attachtmux_command(
+        FakeUpdate(777, "/attachtmux ops-shell Ops Shell"),
+        SimpleNamespace(args=["ops-shell", "Ops", "Shell"]),
+    )
+
+    update = FakeUpdate(777, "/tail")
+    await telegram_bot.tail_command(update, SimpleNamespace(args=[]))
+
+    assert update.message.replies == [("Claude is waiting", {})]
+
+
+@pytest.mark.asyncio
+async def test_send_command_forwards_exact_text(monkeypatch):
+    """The explicit send command should paste text without adding shell semantics."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+    await telegram_bot.attachtmux_command(
+        FakeUpdate(777, "/attachtmux ops-shell Ops Shell"),
+        SimpleNamespace(args=["ops-shell", "Ops", "Shell"]),
+    )
+
+    update = FakeUpdate(777, "/send continue")
+    await telegram_bot.send_command(update, SimpleNamespace(args=["continue"]))
+
+    assert manager.exact_inputs == [("tmux-1", "continue")]
+    assert update.message.replies == [("Sent text to session", {})]
+
+
+@pytest.mark.asyncio
+async def test_key_command_sends_named_special_key(monkeypatch):
+    """The key command should route a normalized special key to the active tmux session."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+    await telegram_bot.attachtmux_command(
+        FakeUpdate(777, "/attachtmux ops-shell Ops Shell"),
+        SimpleNamespace(args=["ops-shell", "Ops", "Shell"]),
+    )
+
+    update = FakeUpdate(777, "/key enter")
+    await telegram_bot.key_command(update, SimpleNamespace(args=["enter"]))
+
+    assert manager.special_keys == [("tmux-1", "enter")]
+    assert update.message.replies == [("Sent key enter", {})]
 
 
 @pytest.mark.asyncio
