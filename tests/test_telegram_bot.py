@@ -828,6 +828,23 @@ async def test_send_command_forwards_exact_text(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_send_command_reports_backend_errors(monkeypatch):
+    """Send should surface backend failures as a Telegram error message."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+    manager.send_exact_input = lambda session_id, text: (_ for _ in ()).throw(RuntimeError("tmux unavailable"))  # noqa: E731
+
+    state = telegram_bot._get_user_sessions(777)
+    state.sessions["ops"] = "tmux-1"
+    state.current_alias = "ops"
+
+    update = FakeUpdate(777, "/send continue")
+    await telegram_bot.send_command(update, SimpleNamespace(args=["continue"]))
+
+    assert update.message.replies == [("❌ Error: tmux unavailable", {})]
+
+
+@pytest.mark.asyncio
 async def test_key_command_sends_named_special_key(monkeypatch):
     """The key command should route a normalized special key to the active tmux session."""
     manager = FakeSessionManager()

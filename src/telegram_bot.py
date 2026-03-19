@@ -808,7 +808,12 @@ async def send_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     session_id = _get_current_session_id(user_id)
     text = " ".join(context.args)
-    await _require_session_manager().send_exact_input(session_id, text)
+    try:
+        await _require_session_manager().send_exact_input(session_id, text)
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {str(e)}")
+        return
+
     await update.message.reply_text("Sent text to session")
 
 
