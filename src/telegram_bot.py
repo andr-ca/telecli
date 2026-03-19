@@ -100,6 +100,18 @@ COMMAND_SPECS = [
         "help": "Show AI proxy and Claude auto-continue status for the current session.",
     },
     {
+        "command": "mode",
+        "description": "Set Telegram mode",
+        "usage": "/mode <shell|agent|status>",
+        "help": "Switch Telegram interaction mode or show the current mode status.",
+    },
+    {
+        "command": "status",
+        "description": "Show session status",
+        "usage": "/status",
+        "help": "Show the current Telegram mode and active session backend details.",
+    },
+    {
         "command": "ai",
         "description": "Manage AI proxy",
         "usage": "/ai <on|off|status> [provider]",
@@ -122,6 +134,7 @@ class TelegramUserSessions:
     current_alias: str = "main"
     sessions: dict[str, str] = field(default_factory=dict)
     last_outputs: dict[str, str] = field(default_factory=dict)
+    session_modes: dict[str, str] = field(default_factory=dict)
 
 
 _telegram_user_sessions: dict[int, TelegramUserSessions] = {}
@@ -154,6 +167,16 @@ def _get_user_sessions(user_id: int) -> TelegramUserSessions:
 def _get_current_session_id(user_id: int) -> str:
     state = _get_user_sessions(user_id)
     return state.sessions[state.current_alias]
+
+
+def _get_session_mode(user_id: int, session_id: str) -> str:
+    state = _get_user_sessions(user_id)
+    return state.session_modes.get(session_id, "shell")
+
+
+def _set_session_mode(user_id: int, session_id: str, mode: str) -> None:
+    state = _get_user_sessions(user_id)
+    state.session_modes[session_id] = mode
 
 
 def _find_alias_for_session(state: TelegramUserSessions, session_id: str) -> str | None:
@@ -693,6 +716,61 @@ async def repeat_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await _reply_in_chunks(update, last_output)
 
 
+def _render_mode_status_text(user_id: int) -> str:
+    state = _get_user_sessions(user_id)
+    session_id = _get_current_session_id(user_id)
+    manager = _require_session_manager()
+    session = manager.get_session_summary(session_id)
+    capabilities = manager.get_session_mode_capabilities(session_id)
+    lines = [
+        f"Current session: {state.current_alias} ({session_id})",
+        f"Mode: {_get_session_mode(user_id, session_id)}",
+        f"Backend: {session['backend']}",
+        f"Agent mode supported: {'yes' if capabilities['supports_agent_mode'] else 'no'}",
+    ]
+    if session.get("tmux_session_name"):
+        lines.append(f"tmux target: {session['tmux_session_name']}")
+    return "\n".join(lines)
+
+
+async def mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Manage Telegram shell vs agent mode for the active session."""
+    user_id = update.effective_user.id
+    if not is_telegram_user_allowed(user_id):
+        await update.message.reply_text("❌ Unauthorized")
+        return
+
+    session_id = _get_current_session_id(user_id)
+    manager = _require_session_manager()
+    action = context.args[0].lower() if context.args else "status"
+
+    if action == "status":
+        await update.message.reply_text(_render_mode_status_text(user_id))
+        return
+
+    if action not in {"shell", "agent"}:
+        await update.message.reply_text("Usage: /mode <shell|agent|status>")
+        return
+
+    capabilities = manager.get_session_mode_capabilities(session_id)
+    if action == "agent" and not capabilities["supports_agent_mode"]:
+        await update.message.reply_text("❌ Agent mode requires a tmux-backed session. Use /newtmux or /attachtmux.")
+        return
+
+    _set_session_mode(user_id, session_id, action)
+    await update.message.reply_text(f"Mode set to {action} for {session_id}")
+
+
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show current Telegram session mode and backend details."""
+    user_id = update.effective_user.id
+    if not is_telegram_user_allowed(user_id):
+        await update.message.reply_text("❌ Unauthorized")
+        return
+
+    await update.message.reply_text(_render_mode_status_text(user_id))
+
+
 async def features_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show Telegram-manageable feature status for the active session."""
     user_id = update.effective_user.id
@@ -861,6 +939,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             "detach": detach_command,
             "repeat": repeat_command,
             "features": features_command,
+            "mode": mode_command,
+            "status": status_command,
             "ai": ai_command,
             "ccauto": ccauto_command,
         }
@@ -919,6 +999,8 @@ async def main(shared_session_manager: SessionManager | None = None):
     app.add_handler(CommandHandler("detach", detach_command))
     app.add_handler(CommandHandler("repeat", repeat_command))
     app.add_handler(CommandHandler("features", features_command))
+    app.add_handler(CommandHandler("mode", mode_command))
+    app.add_handler(CommandHandler("status", status_command))
     app.add_handler(CommandHandler("ai", ai_command))
     app.add_handler(CommandHandler("ccauto", ccauto_command))
     app.add_handler(CallbackQueryHandler(handle_session_picker, pattern=rf"^{SESSION_PICKER_CALLBACK_PREFIX}"))

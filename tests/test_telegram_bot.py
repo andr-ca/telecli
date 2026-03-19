@@ -121,6 +121,7 @@ class FakeSessionManager:
         self.cc_disabled = []
         self.ai_proxies = {}
         self.claude_auto = {}
+        self.agent_recommendations = {}
         self.runtime_sessions = {"777": FakeRuntimeSession(history="prompt$ ")}
         self.stream_chunks = {"777": ["prompt$ ", "pwd\n/home/demo\nprompt$ "]}
         self.machine_tmux_sessions = [
@@ -265,6 +266,25 @@ class FakeSessionManager:
             if session["id"] == session_id:
                 return dict(session)
         raise KeyError(session_id)
+
+    def get_session_mode_capabilities(self, session_id: str):
+        session = self.get_session_summary(session_id)
+        return {
+            "backend": session["backend"],
+            "supports_agent_mode": session["backend"] == "tmux",
+            "tmux_session_name": session["tmux_session_name"],
+        }
+
+    def get_agent_mode_recommendation(self, session_id: str):
+        return self.agent_recommendations.get(
+            session_id,
+            {
+                "supports_agent_mode": self.get_session_mode_capabilities(session_id)["supports_agent_mode"],
+                "should_suggest_agent_mode": False,
+                "reason": "not interactive",
+                "signature": None,
+            },
+        )
 
     async def enable_ai_proxy(self, session_id: str, provider_name: str | None = None, system_prompt: str | None = None):
         self.ai_enabled.append((session_id, provider_name, system_prompt))
@@ -555,6 +575,70 @@ async def test_ai_and_ccauto_commands_toggle_features_for_current_session(monkey
     assert manager.cc_enabled == ["web-1"]
     assert "AI Proxy: on (claude-cli)" in features_update.message.replies[0][0]
     assert "Claude Auto-Continue: on" in features_update.message.replies[0][0]
+
+
+@pytest.mark.asyncio
+async def test_mode_status_defaults_to_shell_for_regular_session(monkeypatch):
+    """Mode status should default to shell for sessions without explicit mode state."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+
+    update = FakeUpdate(777, "/mode status")
+    await telegram_bot.mode_command(update, SimpleNamespace(args=["status"]))
+
+    rendered = update.message.replies[0][0]
+    assert "Mode: shell" in rendered
+    assert "Backend: telecli" in rendered
+
+
+@pytest.mark.asyncio
+async def test_mode_agent_requires_tmux_backed_session(monkeypatch):
+    """Agent mode should be rejected for regular TeleCLI sessions."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+
+    update = FakeUpdate(777, "/mode agent")
+    await telegram_bot.mode_command(update, SimpleNamespace(args=["agent"]))
+
+    assert "requires a tmux-backed session" in update.message.replies[0][0]
+
+
+@pytest.mark.asyncio
+async def test_mode_agent_switches_tmux_backed_session(monkeypatch):
+    """Agent mode should be accepted for tmux-backed sessions and stored per session."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+    await telegram_bot.attachtmux_command(
+        FakeUpdate(777, "/attachtmux ops-shell Ops Shell"),
+        SimpleNamespace(args=["ops-shell", "Ops", "Shell"]),
+    )
+
+    update = FakeUpdate(777, "/mode agent")
+    await telegram_bot.mode_command(update, SimpleNamespace(args=["agent"]))
+
+    state = telegram_bot._get_user_sessions(777)
+    assert state.session_modes["tmux-1"] == "agent"
+    assert update.message.replies == [("Mode set to agent for tmux-1", {})]
+
+
+@pytest.mark.asyncio
+async def test_status_command_reports_mode_and_backend(monkeypatch):
+    """Status should report the active mode, backend, and tmux target details."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+    await telegram_bot.attachtmux_command(
+        FakeUpdate(777, "/attachtmux ops-shell Ops Shell"),
+        SimpleNamespace(args=["ops-shell", "Ops", "Shell"]),
+    )
+    telegram_bot._get_user_sessions(777).session_modes["tmux-1"] = "agent"
+
+    update = FakeUpdate(777, "/status")
+    await telegram_bot.status_command(update, SimpleNamespace(args=[]))
+
+    rendered = update.message.replies[0][0]
+    assert "Mode: agent" in rendered
+    assert "Backend: tmux" in rendered
+    assert "tmux target: ops-shell" in rendered
 
 
 @pytest.mark.asyncio
