@@ -746,6 +746,75 @@ async def test_key_command_sends_named_special_key(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_handle_message_suggests_agent_mode_once_for_interactive_tmux(monkeypatch):
+    """Interactive tmux sessions should get one agent-mode suggestion per recommendation signature."""
+    manager = FakeSessionManager()
+    manager.agent_recommendations["tmux-1"] = {
+        "supports_agent_mode": True,
+        "should_suggest_agent_mode": True,
+        "reason": "codex",
+        "signature": "sig-1",
+    }
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+    await telegram_bot.attachtmux_command(
+        FakeUpdate(777, "/attachtmux ops-shell Ops Shell"),
+        SimpleNamespace(args=["ops-shell", "Ops", "Shell"]),
+    )
+
+    first_update = FakeUpdate(777, "pwd")
+    await telegram_bot.handle_message(first_update, SimpleNamespace())
+
+    second_update = FakeUpdate(777, "pwd")
+    await telegram_bot.handle_message(second_update, SimpleNamespace())
+
+    assert any("Switch this session to agent mode?" in text for text, _ in first_update.message.replies)
+    assert all("Switch this session to agent mode?" not in text for text, _ in second_update.message.replies)
+
+
+@pytest.mark.asyncio
+async def test_agent_mode_picker_switches_session_to_agent(monkeypatch):
+    """The inline switch action should flip the active session into agent mode."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+    await telegram_bot.attachtmux_command(
+        FakeUpdate(777, "/attachtmux ops-shell Ops Shell"),
+        SimpleNamespace(args=["ops-shell", "Ops", "Shell"]),
+    )
+
+    update = FakeCallbackUpdate(777, "agent-mode:switch:tmux-1")
+    await telegram_bot.handle_agent_mode_picker(update, SimpleNamespace())
+
+    state = telegram_bot._get_user_sessions(777)
+    assert state.session_modes["tmux-1"] == "agent"
+    assert update.callback_query.edits[0][0] == "Mode set to agent for tmux-1"
+
+
+@pytest.mark.asyncio
+async def test_agent_mode_picker_mute_suppresses_future_suggestions(monkeypatch):
+    """Muting agent-mode suggestions should suppress later prompts for that session."""
+    manager = FakeSessionManager()
+    manager.agent_recommendations["tmux-1"] = {
+        "supports_agent_mode": True,
+        "should_suggest_agent_mode": True,
+        "reason": "codex",
+        "signature": "sig-1",
+    }
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+    await telegram_bot.attachtmux_command(
+        FakeUpdate(777, "/attachtmux ops-shell Ops Shell"),
+        SimpleNamespace(args=["ops-shell", "Ops", "Shell"]),
+    )
+
+    mute_update = FakeCallbackUpdate(777, "agent-mode:mute:tmux-1")
+    await telegram_bot.handle_agent_mode_picker(mute_update, SimpleNamespace())
+
+    follow_up = FakeUpdate(777, "pwd")
+    await telegram_bot.handle_message(follow_up, SimpleNamespace())
+
+    assert all("Switch this session to agent mode?" not in text for text, _ in follow_up.message.replies)
+
+
+@pytest.mark.asyncio
 async def test_ai_without_args_shows_action_picker(monkeypatch):
     """Telegram should offer AI actions when /ai is invoked without arguments."""
     manager = FakeSessionManager()

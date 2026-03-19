@@ -159,11 +159,14 @@ class TelegramUserSessions:
     sessions: dict[str, str] = field(default_factory=dict)
     last_outputs: dict[str, str] = field(default_factory=dict)
     session_modes: dict[str, str] = field(default_factory=dict)
+    suggestion_dismissals: dict[str, bool] = field(default_factory=dict)
+    last_suggested_signature: dict[str, str] = field(default_factory=dict)
 
 
 _telegram_user_sessions: dict[int, TelegramUserSessions] = {}
 SESSION_PICKER_CALLBACK_PREFIX = "use-session:"
 FEATURE_PICKER_CALLBACK_PREFIX = "feature:"
+AGENT_MODE_CALLBACK_PREFIX = "agent-mode:"
 
 
 def set_session_manager(manager: SessionManager | None) -> None:
@@ -348,6 +351,16 @@ def _build_ccauto_picker_markup() -> InlineKeyboardMarkup:
                 InlineKeyboardButton("Disable", callback_data=f"{FEATURE_PICKER_CALLBACK_PREFIX}ccauto:off"),
             ],
             [InlineKeyboardButton("Cancel", callback_data=f"{FEATURE_PICKER_CALLBACK_PREFIX}cancel")],
+        ]
+    )
+
+
+def _build_agent_mode_picker_markup(session_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("Switch", callback_data=f"{AGENT_MODE_CALLBACK_PREFIX}switch:{session_id}")],
+            [InlineKeyboardButton("Not now", callback_data=f"{AGENT_MODE_CALLBACK_PREFIX}dismiss:{session_id}")],
+            [InlineKeyboardButton("Don't suggest again", callback_data=f"{AGENT_MODE_CALLBACK_PREFIX}mute:{session_id}")],
         ]
     )
 
@@ -821,6 +834,23 @@ def _render_mode_status_text(user_id: int) -> str:
     return "\n".join(lines)
 
 
+def _get_agent_mode_suggestion(user_id: int, session_id: str) -> dict | None:
+    state = _get_user_sessions(user_id)
+    if state.suggestion_dismissals.get(session_id):
+        return None
+
+    recommendation = _require_session_manager().get_agent_mode_recommendation(session_id)
+    if not recommendation.get("supports_agent_mode") or not recommendation.get("should_suggest_agent_mode"):
+        return None
+
+    signature = recommendation.get("signature")
+    if not signature or state.last_suggested_signature.get(session_id) == signature:
+        return None
+
+    state.last_suggested_signature[session_id] = signature
+    return recommendation
+
+
 async def mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Manage Telegram shell vs agent mode for the active session."""
     user_id = update.effective_user.id
@@ -857,6 +887,40 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     await update.message.reply_text(_render_mode_status_text(user_id))
+
+
+async def handle_agent_mode_picker(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle inline picks for agent-mode suggestions."""
+    query = update.callback_query
+    user_id = update.effective_user.id
+
+    if not is_telegram_user_allowed(user_id):
+        await query.answer("❌ Unauthorized", show_alert=True)
+        return
+
+    await query.answer()
+
+    payload = query.data.removeprefix(AGENT_MODE_CALLBACK_PREFIX)
+    parts = payload.split(":", 1)
+    action = parts[0] if parts else ""
+    session_id = parts[1] if len(parts) > 1 else _get_current_session_id(user_id)
+    state = _get_user_sessions(user_id)
+
+    if action == "switch":
+        _set_session_mode(user_id, session_id, "agent")
+        await query.edit_message_text(f"Mode set to agent for {session_id}")
+        return
+
+    if action == "dismiss":
+        await query.edit_message_text("Agent mode suggestion dismissed")
+        return
+
+    if action == "mute":
+        state.suggestion_dismissals[session_id] = True
+        await query.edit_message_text("Agent mode suggestions muted for this session")
+        return
+
+    await query.edit_message_text("Unknown agent mode action")
 
 
 async def features_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1060,6 +1124,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         _get_user_sessions(user_id).last_outputs[session_id] = output
         await _reply_in_chunks(update, output)
 
+        suggestion = _get_agent_mode_suggestion(user_id, session_id)
+        if suggestion:
+            reason = suggestion.get("reason") or "interactive"
+            await update.message.reply_text(
+                f"This looks like an interactive TUI ({reason}). Switch this session to agent mode?",
+                reply_markup=_build_agent_mode_picker_markup(session_id),
+            )
+
         logger.info(f"User {user_id} executed command in session {session_id}: {command[:50]}...")
     except Exception as e:
         error_msg = f"❌ Error: {str(e)}"
@@ -1109,6 +1181,7 @@ async def main(shared_session_manager: SessionManager | None = None):
     app.add_handler(CommandHandler("ccauto", ccauto_command))
     app.add_handler(CallbackQueryHandler(handle_session_picker, pattern=rf"^{SESSION_PICKER_CALLBACK_PREFIX}"))
     app.add_handler(CallbackQueryHandler(handle_feature_picker, pattern=rf"^{FEATURE_PICKER_CALLBACK_PREFIX}"))
+    app.add_handler(CallbackQueryHandler(handle_agent_mode_picker, pattern=rf"^{AGENT_MODE_CALLBACK_PREFIX}"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     logger.info("Starting Telegram bot application...")
