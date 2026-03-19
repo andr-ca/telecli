@@ -6,8 +6,9 @@ import logging
 import uvicorn
 from src.config import Config
 from src.logger import setup_logging, get_logger
-from src.telegram_bot import main as run_telegram_bot
-from src.web_app import app as web_app
+from src.session_manager import SessionManager
+import src.telegram_bot as telegram_bot
+import src.web_app as web_app_module
 
 
 async def main():
@@ -38,11 +39,30 @@ async def main():
     logger.info("=" * 60)
     
     # Create tasks for both web server and Telegram bot
-    logger.info("Starting web server and Telegram bot...")
-    
+    telegram_enabled = bool(Config.TELEGRAM_BOT_TOKEN)
+    telegram_webhook_mode = bool(Config.TELEGRAM_BOT_TOKEN and Config.TELEGRAM_WEBHOOK_URL)
+
+    startup_targets = ["web server"]
+    if telegram_enabled and not telegram_webhook_mode:
+        startup_targets.append("Telegram bot")
+    elif not telegram_enabled:
+        logger.info("Telegram bot is disabled because TELEGRAM_BOT_TOKEN is not configured")
+    else:
+        logger.warning(
+            "Telegram bot is not started from the combined entrypoint in webhook mode because it would bind WEB_PORT=%s twice. "
+            "Run the Telegram bot separately for webhook deployments.",
+            Config.WEB_PORT,
+        )
+
+    logger.info(f"Starting {' and '.join(startup_targets)}...")
+
+    shared_session_manager = SessionManager()
+    web_app_module.set_session_manager(shared_session_manager, managed=False)
+    telegram_bot.set_session_manager(shared_session_manager)
+
     # Create web server task
     config = uvicorn.Config(
-        web_app,
+        web_app_module.app,
         host=Config.WEB_HOST,
         port=Config.WEB_PORT,
         log_level="info",
@@ -56,17 +76,57 @@ async def main():
     )
     server = uvicorn.Server(config)
     
-    # Run both concurrently
+    telegram_task = None
+
+    def _on_telegram_done(task: asyncio.Task) -> None:
+        # This callback runs in the event loop thread; it must not be async.
+        try:
+            exc = task.exception()
+        except asyncio.CancelledError:
+            # Task was cancelled as part of shutdown; no further action needed.
+            return
+        if exc is None:
+            logger.info("Telegram bot task finished normally; stopping web server.")
+        else:
+            logger.error("Telegram bot task stopped with error: %s", exc)
+        # Trigger graceful shutdown of the uvicorn server.
+        server.should_exit = True
+
+    # Run services, and tie Telegram lifecycle to the web server process.
     try:
-        await asyncio.gather(
-            server.serve(),
-            run_telegram_bot(),
-        )
+        if telegram_enabled and not telegram_webhook_mode:
+            telegram_task = asyncio.create_task(telegram_bot.main(shared_session_manager))
+            telegram_task.add_done_callback(_on_telegram_done)
+            # Let the event loop run once so failures during Telegram startup surface immediately.
+            await asyncio.sleep(0)
+            if telegram_task.done():
+                exc = telegram_task.exception()
+                if exc is not None:
+                    logger.error("Telegram bot failed to start: %s", exc)
+                    raise exc
+
+        await server.serve()
     except (KeyboardInterrupt, SystemExit):
         logger.info("Application interrupted, shutting down...")
     except Exception as e:
         logger.error(f"Application error: {e}")
         raise
+    finally:
+        if telegram_task:
+            if not telegram_task.done():
+                telegram_task.cancel()
+            try:
+                await telegram_task
+            except asyncio.CancelledError:
+                pass
+            except SystemExit:
+                pass
+            except Exception as e:
+                logger.error("Telegram bot task stopped with error during shutdown: %s", e)
+
+        await shared_session_manager.close_all()
+        web_app_module.set_session_manager(None, managed=False)
+        telegram_bot.set_session_manager(None)
 
 
 if __name__ == "__main__":

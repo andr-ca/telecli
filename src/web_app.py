@@ -19,10 +19,18 @@ logger = logging.getLogger(__name__)
 
 # Global session manager
 session_manager: SessionManager = None
+_session_manager_managed = False
 
 # Global LLM monitor data
 llm_monitor_data = []
 MAX_MONITOR_ENTRIES = 100
+
+
+def set_session_manager(manager: SessionManager | None, *, managed: bool = False) -> None:
+    """Inject a session manager instance for the web app lifecycle."""
+    global session_manager, _session_manager_managed
+    session_manager = manager
+    _session_manager_managed = managed
 
 
 async def send_json_locked(websocket: WebSocket, payload: dict, send_lock: asyncio.Lock) -> bool:
@@ -49,15 +57,17 @@ def add_llm_monitor_entry(entry_type: str, data: dict):
 async def lifespan(app: FastAPI):
     """Lifespan context manager"""
     global session_manager
-    session_manager = SessionManager()
+    if session_manager is None:
+        set_session_manager(SessionManager(), managed=True)
 
     # Pass monitor entry function to session manager
     session_manager.set_monitor_callback(add_llm_monitor_entry)
 
     logger.info("Web app started")
     yield
-    await session_manager.close_all()
-    session_manager = None
+    if _session_manager_managed and session_manager is not None:
+        await session_manager.close_all()
+        set_session_manager(None, managed=False)
     logger.info("Web app stopped")
 
 
