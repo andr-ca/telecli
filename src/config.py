@@ -125,8 +125,8 @@ class Config:
     @classmethod
     def validate(cls):
         """Validate critical configuration"""
-        if not cls.TELEGRAM_BOT_TOKEN:
-            raise ValueError("TELEGRAM_BOT_TOKEN is required in .env")
+        if cls.TELEGRAM_WEBHOOK_URL and not cls.TELEGRAM_BOT_TOKEN:
+            raise ValueError("TELEGRAM_BOT_TOKEN is required when TELEGRAM_WEBHOOK_URL is set")
 
         # Create log directory if needed
         if cls.LOG_OUTPUT in ("file", "both"):

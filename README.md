@@ -40,6 +40,7 @@ TeleCLI is a web-based terminal interface that allows users to interact with com
    - Create a Python virtual environment
    - Install all dependencies
    - Start the web server
+   - Start the Telegram bot when `TELEGRAM_BOT_TOKEN` is configured
 
    Or install manually:
    ```bash
@@ -84,6 +85,7 @@ python -m src.main
 ```
 
 The application will start both the web server and Telegram bot (if configured).
+When running from a git worktree, `run_web.sh` will also accept a shared `.env` from a parent checkout directory.
 
 ### Production Deployment
 
