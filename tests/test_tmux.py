@@ -63,6 +63,23 @@ def test_get_tmux_interaction_recommendation_reports_signature_and_interactivity
     assert recommendation["pane"]["interactive"] is True
 
 
+def test_tmux_interaction_signature_is_stable_and_ignores_snapshot_content():
+    pane = {
+        "pane_id": "%1",
+        "current_command": "vim",
+        "alternate_screen": True,
+        "interactive": True,
+    }
+
+    signature_one = tmux._tmux_interaction_signature("dev-shell", pane)  # noqa: SLF001
+    pane["current_command"] = "vim"
+    pane["alternate_screen"] = True
+    signature_two = tmux._tmux_interaction_signature("dev-shell", pane)  # noqa: SLF001
+
+    assert signature_one == "dev-shell:%1:vim:1"
+    assert signature_two == signature_one
+
+
 def test_send_tmux_key_maps_common_aliases(monkeypatch):
     calls = []
 
@@ -95,4 +112,20 @@ def test_get_tmux_path_requires_tmux_binary(monkeypatch):
     )
 
     with pytest.raises(ValueError, match="tmux is not installed"):
+        tmux.capture_tmux_pane("dev-shell")
+
+
+def test_run_tmux_command_raises_on_non_zero_exit(monkeypatch):
+    monkeypatch.setattr(
+        tmux.shutil,
+        "which",
+        lambda name: "/usr/bin/tmux",
+    )
+    monkeypatch.setattr(
+        tmux.subprocess,
+        "run",
+        lambda *args, **kwargs: _completed(stdout="", stderr="boom", returncode=1),
+    )
+
+    with pytest.raises(ValueError, match="boom"):
         tmux.capture_tmux_pane("dev-shell")

@@ -116,6 +116,12 @@ def send_tmux_key(session_name: str, key_name: str) -> None:
     _run_tmux_command(["send-keys", "-t", session_name, mapped_key])
 
 
+def _tmux_interaction_signature(session_name: str, pane: dict) -> str:
+    """Build a stable signature for agent-mode suggestion suppression."""
+    alternate_screen = int(bool(pane.get("alternate_screen")))
+    return f"{session_name}:{pane.get('pane_id', '')}:{pane.get('current_command', '')}:{alternate_screen}"
+
+
 def get_tmux_interaction_recommendation(session_name: str) -> dict:
     """Summarize whether tmux suggests an interactive agent-mode session."""
     pane = get_tmux_pane_state(session_name)
@@ -123,9 +129,7 @@ def get_tmux_interaction_recommendation(session_name: str) -> dict:
         "supports_agent_mode": True,
         "should_suggest_agent_mode": pane["interactive"],
         "reason": pane["current_command"] or "unknown",
-        "signature": (
-            f"{session_name}:{pane['pane_id']}:{pane['current_command']}:{int(pane['alternate_screen'])}"
-        ),
+        "signature": _tmux_interaction_signature(session_name, pane),
         "pane": pane,
     }
 
