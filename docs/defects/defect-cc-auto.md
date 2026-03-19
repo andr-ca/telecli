@@ -205,8 +205,8 @@ Fix:
 
 Implemented in:
 
-- [src/session_manager.py](/home/andrey/projects/telecli/src/session_manager.py#L355)
-- [src/session_manager.py](/home/andrey/projects/telecli/src/session_manager.py#L437)
+- [src/session_manager.py](../../src/session_manager.py#L355)
+- [src/session_manager.py](../../src/session_manager.py#L437)
 
 ### Root Cause 6: Active `ccusage` Block Windows Were Treated As Real Block Reset Deadlines
 
