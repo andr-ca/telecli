@@ -198,6 +198,51 @@ async def test_enable_ai_proxy_creates_missing_session_record(monkeypatch):
     assert manager.sessions == {}
 
 
+@pytest.mark.asyncio
+async def test_enable_claude_code_auto_continue_submits_continue_as_a_line(monkeypatch):
+    """Claude auto-continue should submit `continue` as a single line, not raw keystrokes."""
+    manager = SessionManager()
+    sent_inputs = []
+
+    class FakeSession:
+        def get_recent_output(self):
+            return ""
+
+    class FakeClaudeCodeAutoContinue:
+        def __init__(self):
+            self.send_input_callback = None
+
+        def set_input_callback(self, callback):
+            self.send_input_callback = callback
+
+        def enable(self):
+            return None
+
+        def prime_with_output(self, text: str):
+            return None
+
+    async def fake_get_session(_session_id: str):
+        return FakeSession()
+
+    async def fake_send_input(session_id: str, text: str, newline: bool = True, from_ai: bool = False):
+        sent_inputs.append((session_id, text, newline, from_ai))
+
+    monkeypatch.setattr("src.session_manager.ClaudeCodeAutoContinue", FakeClaudeCodeAutoContinue)
+    monkeypatch.setattr(manager, "get_session", fake_get_session)
+    monkeypatch.setattr(manager, "send_input", fake_send_input)
+
+    enabled = await manager.enable_claude_code_auto_continue("cc-session")
+
+    controller = manager.get_claude_code_auto_continue("cc-session")
+
+    assert enabled is True
+    assert controller is not None
+
+    await controller.send_input_callback("continue")
+
+    assert sent_inputs == [("cc-session", "continue", True, True)]
+
+
 # TODO: Add tests for:
 # - test_session_manager_max_sessions_limit()
 # - test_session_manager_send_command()
