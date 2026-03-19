@@ -465,7 +465,8 @@ def _render_help() -> str:
         "TeleCLI - Terminal access via Telegram",
         "",
         "Use Telegram's / menu to autocomplete commands.",
-        "Send any non-command message to run it in the current session.",
+        "In shell mode, non-command messages run as shell commands.",
+        "In agent mode, non-command messages are pasted into interactive tmux sessions.",
         "",
         "Commands:",
     ]
@@ -761,7 +762,12 @@ async def snapshot_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return
 
     session_id = _get_current_session_id(user_id)
-    snapshot = _require_session_manager().capture_session_snapshot(session_id, lines=80)
+    try:
+        snapshot = _require_session_manager().capture_session_snapshot(session_id, lines=80)
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {str(e)}")
+        return
+
     await _reply_in_chunks(update, _strip_ansi(snapshot))
 
 
@@ -781,7 +787,12 @@ async def tail_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             await update.message.reply_text("Usage: /tail [lines]")
             return
 
-    tail_output = _require_session_manager().tail_session_output(session_id, lines=lines)
+    try:
+        tail_output = _require_session_manager().tail_session_output(session_id, lines=lines)
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {str(e)}")
+        return
+
     await _reply_in_chunks(update, _strip_ansi(tail_output))
 
 
@@ -813,7 +824,12 @@ async def key_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     session_id = _get_current_session_id(user_id)
     key_name = context.args[0].lower()
-    _require_session_manager().send_special_key(session_id, key_name)
+    try:
+        _require_session_manager().send_special_key(session_id, key_name)
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {str(e)}")
+        return
+
     await update.message.reply_text(f"Sent key {key_name}")
 
 
@@ -907,6 +923,10 @@ async def handle_agent_mode_picker(update: Update, context: ContextTypes.DEFAULT
     state = _get_user_sessions(user_id)
 
     if action == "switch":
+        capabilities = _require_session_manager().get_session_mode_capabilities(session_id)
+        if not capabilities["supports_agent_mode"]:
+            await query.edit_message_text("❌ Agent mode requires a tmux-backed session. Use /newtmux or /attachtmux.")
+            return
         _set_session_mode(user_id, session_id, "agent")
         await query.edit_message_text(f"Mode set to agent for {session_id}")
         return

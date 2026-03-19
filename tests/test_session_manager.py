@@ -198,9 +198,10 @@ async def test_enable_ai_proxy_creates_missing_session_record(monkeypatch):
     assert manager.sessions == {}
 
 
-def test_session_manager_reports_agent_mode_capabilities_for_tmux_record(tmp_path):
+def test_session_manager_reports_agent_mode_capabilities_for_tmux_record(tmp_path, monkeypatch):
     """tmux-backed records should advertise agent-mode support."""
     manager = SessionManager(registry_path=tmp_path / "tmux-session-registry.json")
+    monkeypatch.setattr("src.session_manager.tmux_session_exists", lambda name: True)
     manager._ensure_record(  # noqa: SLF001 - exercising manager state directly
         "tmux-session-1",
         backend="tmux",
@@ -213,6 +214,26 @@ def test_session_manager_reports_agent_mode_capabilities_for_tmux_record(tmp_pat
     assert capabilities == {
         "backend": "tmux",
         "supports_agent_mode": True,
+        "tmux_session_name": "ops-shell",
+    }
+
+
+def test_session_manager_reports_no_agent_mode_support_for_unavailable_tmux_session(tmp_path, monkeypatch):
+    """tmux-backed records should stop advertising agent mode when the backing tmux session is gone."""
+    manager = SessionManager(registry_path=tmp_path / "tmux-session-registry.json")
+    monkeypatch.setattr("src.session_manager.tmux_session_exists", lambda name: False)
+    manager._ensure_record(  # noqa: SLF001 - exercising manager state directly
+        "tmux-session-1",
+        backend="tmux",
+        name="Ops Shell",
+        tmux_session_name="ops-shell",
+    )
+
+    capabilities = manager.get_session_mode_capabilities("tmux-session-1")
+
+    assert capabilities == {
+        "backend": "tmux",
+        "supports_agent_mode": False,
         "tmux_session_name": "ops-shell",
     }
 
@@ -234,6 +255,7 @@ def test_session_manager_reports_no_agent_mode_support_for_telecli_session():
 def test_session_manager_delegates_agent_mode_recommendation_for_tmux(tmp_path, monkeypatch):
     """tmux-backed sessions should delegate recommendation details to tmux helpers."""
     manager = SessionManager(registry_path=tmp_path / "tmux-session-registry.json")
+    monkeypatch.setattr("src.session_manager.tmux_session_exists", lambda name: True)
     manager._ensure_record(  # noqa: SLF001 - exercising manager state directly
         "tmux-session-1",
         backend="tmux",
@@ -256,6 +278,27 @@ def test_session_manager_delegates_agent_mode_recommendation_for_tmux(tmp_path, 
     assert recommendation["should_suggest_agent_mode"] is True
     assert recommendation["reason"] == "codex"
     assert recommendation["signature"] == "ops-shell:%1:codex:1"
+
+
+def test_session_manager_does_not_recommend_agent_mode_for_unavailable_tmux(tmp_path, monkeypatch):
+    """Unavailable tmux-backed sessions should not produce agent-mode suggestions."""
+    manager = SessionManager(registry_path=tmp_path / "tmux-session-registry.json")
+    monkeypatch.setattr("src.session_manager.tmux_session_exists", lambda name: False)
+    manager._ensure_record(  # noqa: SLF001 - exercising manager state directly
+        "tmux-session-1",
+        backend="tmux",
+        name="Ops Shell",
+        tmux_session_name="ops-shell",
+    )
+
+    recommendation = manager.get_agent_mode_recommendation("tmux-session-1")
+
+    assert recommendation == {
+        "supports_agent_mode": False,
+        "should_suggest_agent_mode": False,
+        "reason": "Session is not tmux-backed or backing tmux session is unavailable",
+        "signature": None,
+    }
 
 
 def test_session_manager_rejects_snapshot_for_non_tmux_session():

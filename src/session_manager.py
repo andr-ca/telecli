@@ -178,20 +178,22 @@ class SessionManager:
     def get_session_mode_capabilities(self, session_id: str) -> dict:
         """Describe whether the session supports Telegram agent mode."""
         record = self._resolve_record(session_id)
+        tmux_available = bool(record.backend == "tmux" and record.tmux_session_name and tmux_session_exists(record.tmux_session_name))
         return {
             "backend": record.backend,
-            "supports_agent_mode": record.backend == "tmux" and bool(record.tmux_session_name),
+            "supports_agent_mode": tmux_available,
             "tmux_session_name": record.tmux_session_name,
         }
 
     def get_agent_mode_recommendation(self, session_id: str) -> dict:
         """Return a recommendation summary for Telegram agent mode."""
         record = self._resolve_record(session_id)
-        if record.backend != "tmux" or not record.tmux_session_name:
+        capabilities = self.get_session_mode_capabilities(session_id)
+        if not capabilities["supports_agent_mode"]:
             return {
                 "supports_agent_mode": False,
                 "should_suggest_agent_mode": False,
-                "reason": "Session is not tmux-backed",
+                "reason": "Session is not tmux-backed or backing tmux session is unavailable",
                 "signature": None,
             }
 

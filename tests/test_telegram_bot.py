@@ -640,6 +640,30 @@ async def test_mode_agent_switches_tmux_backed_session(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_mode_agent_rejects_unavailable_tmux_backed_session(monkeypatch):
+    """Agent mode should be rejected when the tmux backing session is gone."""
+    manager = telegram_bot.SessionManager()
+    monkeypatch.setattr("src.session_manager.tmux_session_exists", lambda name: False)
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+    manager._ensure_record(  # noqa: SLF001 - exercising existing manager state directly
+        "tmux-session-1",
+        backend="tmux",
+        name="Ops Shell",
+        tmux_session_name="ops-shell",
+    )
+
+    state = telegram_bot._get_user_sessions(777)
+    state.sessions["ops"] = "tmux-session-1"
+    state.current_alias = "ops"
+
+    update = FakeUpdate(777, "/mode agent")
+    await telegram_bot.mode_command(update, SimpleNamespace(args=["agent"]))
+
+    assert "requires a tmux-backed session" in update.message.replies[0][0]
+    assert state.session_modes.get("tmux-session-1") != "agent"
+
+
+@pytest.mark.asyncio
 async def test_status_command_reports_mode_and_backend(monkeypatch):
     """Status should report the active mode, backend, and tmux target details."""
     manager = FakeSessionManager()
@@ -660,6 +684,30 @@ async def test_status_command_reports_mode_and_backend(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_agent_mode_picker_rejects_unavailable_tmux_backed_session(monkeypatch):
+    """The inline agent-mode switch should refuse sessions whose tmux backend disappeared."""
+    manager = telegram_bot.SessionManager()
+    monkeypatch.setattr("src.session_manager.tmux_session_exists", lambda name: False)
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+    manager._ensure_record(  # noqa: SLF001 - exercising existing manager state directly
+        "tmux-session-1",
+        backend="tmux",
+        name="Ops Shell",
+        tmux_session_name="ops-shell",
+    )
+
+    state = telegram_bot._get_user_sessions(777)
+    state.sessions["ops"] = "tmux-session-1"
+    state.current_alias = "ops"
+
+    update = FakeCallbackUpdate(777, "agent-mode:switch:tmux-session-1")
+    await telegram_bot.handle_agent_mode_picker(update, SimpleNamespace())
+
+    assert state.session_modes.get("tmux-session-1") != "agent"
+    assert "requires a tmux-backed session" in update.callback_query.edits[0][0]
+
+
+@pytest.mark.asyncio
 async def test_handle_message_uses_exact_send_in_agent_mode(monkeypatch):
     """Agent mode should send raw text plus an explicit Enter key instead of shell command execution."""
     manager = FakeSessionManager()
@@ -677,6 +725,57 @@ async def test_handle_message_uses_exact_send_in_agent_mode(monkeypatch):
     assert manager.special_keys == [("tmux-1", "enter")]
     assert manager.sent_inputs == []
     assert update.message.replies == [("Sent to agent session", {})]
+
+
+@pytest.mark.asyncio
+async def test_snapshot_command_reports_backend_errors(monkeypatch):
+    """Snapshot should surface backend failures as a Telegram error message."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+    manager.capture_session_snapshot = lambda session_id, *, lines=80: (_ for _ in ()).throw(ValueError("tmux unavailable"))  # noqa: E731
+
+    state = telegram_bot._get_user_sessions(777)
+    state.sessions["ops"] = "tmux-1"
+    state.current_alias = "ops"
+
+    update = FakeUpdate(777, "/snapshot")
+    await telegram_bot.snapshot_command(update, SimpleNamespace(args=[]))
+
+    assert update.message.replies == [("❌ Error: tmux unavailable", {})]
+
+
+@pytest.mark.asyncio
+async def test_tail_command_reports_backend_errors(monkeypatch):
+    """Tail should surface backend failures as a Telegram error message."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+    manager.tail_session_output = lambda session_id, *, lines=20: (_ for _ in ()).throw(RuntimeError("tmux unavailable"))  # noqa: E731
+
+    state = telegram_bot._get_user_sessions(777)
+    state.sessions["ops"] = "tmux-1"
+    state.current_alias = "ops"
+
+    update = FakeUpdate(777, "/tail")
+    await telegram_bot.tail_command(update, SimpleNamespace(args=[]))
+
+    assert update.message.replies == [("❌ Error: tmux unavailable", {})]
+
+
+@pytest.mark.asyncio
+async def test_key_command_reports_backend_errors(monkeypatch):
+    """Key should surface backend failures as a Telegram error message."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+    manager.send_special_key = lambda session_id, key_name: (_ for _ in ()).throw(ValueError("unsupported key"))  # noqa: E731
+
+    state = telegram_bot._get_user_sessions(777)
+    state.sessions["ops"] = "tmux-1"
+    state.current_alias = "ops"
+
+    update = FakeUpdate(777, "/key enter")
+    await telegram_bot.key_command(update, SimpleNamespace(args=["enter"]))
+
+    assert update.message.replies == [("❌ Error: unsupported key", {})]
 
 
 @pytest.mark.asyncio
@@ -1004,6 +1103,8 @@ async def test_help_command_lists_commands_and_autocomplete_hint(monkeypatch):
     assert "/attachtmux <tmux-name> [alias]" in rendered
     assert "/newtmux <tmux-name> [alias]" in rendered
     assert "/mode <shell|agent|status>" in rendered
+    assert "shell mode" in rendered.lower()
+    assert "agent mode" in rendered.lower()
     assert "/snapshot" in rendered
     assert "/tail [lines]" in rendered
     assert "/repeat - Repeat the last terminal output" in rendered
