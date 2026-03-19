@@ -198,6 +198,138 @@ async def test_enable_ai_proxy_creates_missing_session_record(monkeypatch):
     assert manager.sessions == {}
 
 
+def test_session_manager_reports_agent_mode_capabilities_for_tmux_record(tmp_path):
+    """tmux-backed records should advertise agent-mode support."""
+    manager = SessionManager(registry_path=tmp_path / "tmux-session-registry.json")
+    manager._ensure_record(  # noqa: SLF001 - exercising manager state directly
+        "tmux-session-1",
+        backend="tmux",
+        name="Ops Shell",
+        tmux_session_name="ops-shell",
+    )
+
+    capabilities = manager.get_session_mode_capabilities("tmux-session-1")
+
+    assert capabilities == {
+        "backend": "tmux",
+        "supports_agent_mode": True,
+        "tmux_session_name": "ops-shell",
+    }
+
+
+def test_session_manager_reports_no_agent_mode_support_for_telecli_session():
+    """Regular TeleCLI sessions should not advertise tmux-only agent mode support."""
+    manager = SessionManager()
+    created = manager.create_session_entry("build")
+
+    capabilities = manager.get_session_mode_capabilities(created["id"])
+
+    assert capabilities == {
+        "backend": "telecli",
+        "supports_agent_mode": False,
+        "tmux_session_name": None,
+    }
+
+
+def test_session_manager_delegates_agent_mode_recommendation_for_tmux(tmp_path, monkeypatch):
+    """tmux-backed sessions should delegate recommendation details to tmux helpers."""
+    manager = SessionManager(registry_path=tmp_path / "tmux-session-registry.json")
+    manager._ensure_record(  # noqa: SLF001 - exercising manager state directly
+        "tmux-session-1",
+        backend="tmux",
+        name="Ops Shell",
+        tmux_session_name="ops-shell",
+    )
+    monkeypatch.setattr(
+        "src.session_manager.get_tmux_interaction_recommendation",
+        lambda name: {
+            "supports_agent_mode": True,
+            "should_suggest_agent_mode": True,
+            "reason": "codex",
+            "signature": "ops-shell:%1:codex:1",
+            "pane": {"pane_id": "%1"},
+        },
+    )
+
+    recommendation = manager.get_agent_mode_recommendation("tmux-session-1")
+
+    assert recommendation["should_suggest_agent_mode"] is True
+    assert recommendation["reason"] == "codex"
+    assert recommendation["signature"] == "ops-shell:%1:codex:1"
+
+
+def test_session_manager_rejects_snapshot_for_non_tmux_session():
+    """Snapshot capture should reject sessions that are not tmux-backed."""
+    manager = SessionManager()
+    created = manager.create_session_entry("build")
+
+    with pytest.raises(ValueError, match="tmux-backed"):
+        manager.capture_session_snapshot(created["id"])
+
+
+def test_session_manager_captures_and_tails_tmux_session_output(tmp_path, monkeypatch):
+    """Snapshot and tail helpers should delegate to the tmux capture helper."""
+    manager = SessionManager(registry_path=tmp_path / "tmux-session-registry.json")
+    manager._ensure_record(  # noqa: SLF001 - exercising manager state directly
+        "tmux-session-1",
+        backend="tmux",
+        name="Ops Shell",
+        tmux_session_name="ops-shell",
+    )
+    monkeypatch.setattr(
+        "src.session_manager.capture_tmux_pane",
+        lambda name, lines=80: "line 1\nline 2\nline 3\nline 4\n",
+    )
+
+    snapshot = manager.capture_session_snapshot("tmux-session-1", lines=80)
+    tail = manager.tail_session_output("tmux-session-1", lines=2)
+
+    assert snapshot == "line 1\nline 2\nline 3\nline 4\n"
+    assert tail == "line 3\nline 4"
+
+
+@pytest.mark.asyncio
+async def test_session_manager_send_exact_input_uses_non_newline_send(monkeypatch):
+    """Exact input should preserve raw text by disabling newline insertion."""
+    manager = SessionManager()
+    calls = []
+
+    async def fake_send_input(session_id: str, text: str, newline: bool = True, from_ai: bool = False):
+        calls.append((session_id, text, newline, from_ai))
+
+    monkeypatch.setattr(manager, "send_input", fake_send_input)
+
+    await manager.send_exact_input("web-1", "continue")
+
+    assert calls == [("web-1", "continue", False, False)]
+
+
+def test_session_manager_send_special_key_delegates_for_tmux(tmp_path, monkeypatch):
+    """Special keys should delegate to tmux for tmux-backed sessions."""
+    manager = SessionManager(registry_path=tmp_path / "tmux-session-registry.json")
+    manager._ensure_record(  # noqa: SLF001 - exercising manager state directly
+        "tmux-session-1",
+        backend="tmux",
+        name="Ops Shell",
+        tmux_session_name="ops-shell",
+    )
+    sent = []
+    monkeypatch.setattr("src.session_manager.send_tmux_key", lambda name, key: sent.append((name, key)))
+
+    manager.send_special_key("tmux-session-1", "enter")
+
+    assert sent == [("ops-shell", "enter")]
+
+
+def test_session_manager_send_special_key_rejects_non_tmux_sessions():
+    """Special keys should only be available for tmux-backed sessions."""
+    manager = SessionManager()
+    created = manager.create_session_entry("build")
+
+    with pytest.raises(ValueError, match="tmux-backed"):
+        manager.send_special_key(created["id"], "enter")
+
+
 # TODO: Add tests for:
 # - test_session_manager_max_sessions_limit()
 # - test_session_manager_send_command()

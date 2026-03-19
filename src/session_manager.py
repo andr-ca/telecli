@@ -17,7 +17,14 @@ from src.config import Config
 from src.llm_provider import LLMProviderFactory
 from src.llm_providers import *  # Register all providers
 from src.terminal import TerminalSession, TmuxSession
-from src.tmux import create_tmux_session, list_tmux_sessions, tmux_session_exists
+from src.tmux import (
+    capture_tmux_pane,
+    create_tmux_session,
+    get_tmux_interaction_recommendation,
+    list_tmux_sessions,
+    send_tmux_key,
+    tmux_session_exists,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -167,6 +174,28 @@ class SessionManager:
             "available": available,
             "tmux_session_name": record.tmux_session_name,
         }
+
+    def get_session_mode_capabilities(self, session_id: str) -> dict:
+        """Describe whether the session supports Telegram agent mode."""
+        record = self._resolve_record(session_id)
+        return {
+            "backend": record.backend,
+            "supports_agent_mode": record.backend == "tmux" and bool(record.tmux_session_name),
+            "tmux_session_name": record.tmux_session_name,
+        }
+
+    def get_agent_mode_recommendation(self, session_id: str) -> dict:
+        """Return a recommendation summary for Telegram agent mode."""
+        record = self._resolve_record(session_id)
+        if record.backend != "tmux" or not record.tmux_session_name:
+            return {
+                "supports_agent_mode": False,
+                "should_suggest_agent_mode": False,
+                "reason": "Session is not tmux-backed",
+                "signature": None,
+            }
+
+        return get_tmux_interaction_recommendation(record.tmux_session_name)
 
     def list_sessions(self) -> list[dict]:
         for session_id in list(self.sessions):
@@ -363,6 +392,31 @@ class SessionManager:
         session = await self.get_session(session_id)
         async for chunk in session.get_output_stream():
             yield chunk
+
+    def capture_session_snapshot(self, session_id: str, *, lines: int = 80) -> str:
+        """Capture a stable snapshot for tmux-backed sessions."""
+        record = self._resolve_record(session_id)
+        if record.backend != "tmux" or not record.tmux_session_name:
+            raise ValueError("Agent mode requires a tmux-backed session")
+
+        return capture_tmux_pane(record.tmux_session_name, lines=lines)
+
+    def tail_session_output(self, session_id: str, *, lines: int = 20) -> str:
+        """Return the last N lines from a tmux pane snapshot."""
+        snapshot = self.capture_session_snapshot(session_id, lines=max(lines, 80))
+        return "\n".join(snapshot.splitlines()[-lines:])
+
+    async def send_exact_input(self, session_id: str, text: str) -> None:
+        """Send raw text without appending a newline."""
+        await self.send_input(session_id, text, newline=False, from_ai=False)
+
+    def send_special_key(self, session_id: str, key_name: str) -> None:
+        """Send a normalized key sequence to a tmux-backed session."""
+        record = self._resolve_record(session_id)
+        if record.backend != "tmux" or not record.tmux_session_name:
+            raise ValueError("Agent mode requires a tmux-backed session")
+
+        send_tmux_key(record.tmux_session_name, key_name)
 
     async def enable_ai_proxy(
         self,
