@@ -133,3 +133,64 @@ Fixed. Alias allocation now auto-suffixes on collisions instead of raising, so `
 ```text
 Fixed. The same collision-safe alias allocation is now used when the session picker targets a session whose name collides with an existing alias, and there’s a dedicated regression for the picker callback path.
 ```
+
+## Additional Review
+
+- Review ID: `PRR_kwDOQoRQ3s7s3ySa`
+
+All 3 newly added inline comments were technically valid for this branch.
+
+Additional actions taken:
+
+- added a fail-fast guard in `src/telegram_bot.py` so direct Telegram startup rejects a missing `TELEGRAM_BOT_TOKEN` with a clear `ValueError` before building the Telegram `Application`
+- changed the combined `src.main` entrypoint to skip Telegram startup in webhook mode and log why, instead of attempting to bind `WEB_PORT` twice
+- updated the README prerequisite to Python 3.10+ and documented that webhook deployments must run the Telegram bot separately from the combined entrypoint
+- added regressions in `tests/test_telegram_bot.py`, `tests/test_main.py`, and `tests/test_readme.py`
+
+Additional verification:
+
+```bash
+pytest tests/test_telegram_bot.py tests/test_main.py tests/test_run_web.py tests/test_service_wiring.py tests/test_config.py tests/test_readme.py -q
+python3 -m py_compile src/telegram_bot.py src/main.py src/web_app.py src/config.py
+```
+
+Observed results:
+
+- `37 passed`
+- `py_compile` completed without errors
+
+### 9. `telegram_bot.main()` crashes with a missing token
+
+- Comment ID: `2959024437`
+- URL: https://github.com/malandr/telecli/pull/8#discussion_r2959024437
+- Evaluation: valid
+- Action: added an explicit top-level guard in `telegram_bot.main()` that raises `ValueError("TELEGRAM_BOT_TOKEN is required to start the Telegram bot")` before any `Application.builder()` call; added a regression in `tests/test_telegram_bot.py`
+- PR response:
+
+```text
+Fixed. `telegram_bot.main()` now fails fast with a clear `ValueError` when `TELEGRAM_BOT_TOKEN` is missing, before building the Telegram `Application`, and there’s a regression covering the direct startup path.
+```
+
+### 10. Combined `src.main` startup collides with webhook mode on `WEB_PORT`
+
+- Comment ID: `2959024472`
+- URL: https://github.com/malandr/telecli/pull/8#discussion_r2959024472
+- Evaluation: valid
+- Action: taught `src.main` to skip Telegram startup when `TELEGRAM_WEBHOOK_URL` is configured and log a warning that webhook deployments must run the Telegram bot separately, avoiding a second bind on `WEB_PORT`; added a regression in `tests/test_main.py`
+- PR response:
+
+```text
+Fixed. The combined `src.main` entrypoint now skips Telegram startup in webhook mode and logs why, instead of trying to bind `WEB_PORT` twice. There’s also a regression covering that combined-startup path.
+```
+
+### 11. README still claims Python 3.8 support
+
+- Comment ID: `2959024497`
+- URL: https://github.com/malandr/telecli/pull/8#discussion_r2959024497
+- Evaluation: valid
+- Action: updated the README prerequisite to `Python 3.10 or higher` and added a small README regression test in `tests/test_readme.py`
+- PR response:
+
+```text
+Fixed. The README now documents `Python 3.10 or higher`, which matches the 3.10-only syntax already used in the codebase, and I added a small README regression test for that prerequisite line.
+```

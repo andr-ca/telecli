@@ -889,6 +889,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 async def main(shared_session_manager: SessionManager | None = None):
     """Main entry point for Telegram bot"""
+    if not Config.TELEGRAM_BOT_TOKEN:
+        raise ValueError("TELEGRAM_BOT_TOKEN is required to start the Telegram bot")
+
     owns_session_manager = shared_session_manager is None
 
     logger.info("Initializing Telegram bot...")

@@ -39,11 +39,20 @@ async def main():
     logger.info("=" * 60)
     
     # Create tasks for both web server and Telegram bot
+    telegram_enabled = bool(Config.TELEGRAM_BOT_TOKEN)
+    telegram_webhook_mode = bool(Config.TELEGRAM_BOT_TOKEN and Config.TELEGRAM_WEBHOOK_URL)
+
     startup_targets = ["web server"]
-    if Config.TELEGRAM_BOT_TOKEN:
+    if telegram_enabled and not telegram_webhook_mode:
         startup_targets.append("Telegram bot")
-    else:
+    elif not telegram_enabled:
         logger.info("Telegram bot is disabled because TELEGRAM_BOT_TOKEN is not configured")
+    else:
+        logger.warning(
+            "Telegram bot is not started from the combined entrypoint in webhook mode because it would bind WEB_PORT=%s twice. "
+            "Run the Telegram bot separately for webhook deployments.",
+            Config.WEB_PORT,
+        )
 
     logger.info(f"Starting {' and '.join(startup_targets)}...")
 
@@ -71,7 +80,7 @@ async def main():
 
     # Run services, and tie Telegram lifecycle to the web server process.
     try:
-        if Config.TELEGRAM_BOT_TOKEN:
+        if telegram_enabled and not telegram_webhook_mode:
             telegram_task = asyncio.create_task(telegram_bot.main(shared_session_manager))
             await asyncio.sleep(0)
 

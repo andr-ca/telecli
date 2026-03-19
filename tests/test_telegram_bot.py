@@ -92,6 +92,20 @@ class FakeBot:
         self.set_my_commands_calls.append(commands)
 
 
+class FakeApplicationBuilder:
+    def __init__(self):
+        self.token_value = None
+        self.build_calls = 0
+
+    def token(self, value):
+        self.token_value = value
+        return self
+
+    def build(self):
+        self.build_calls += 1
+        return object()
+
+
 class FakeSessionManager:
     def __init__(self):
         self.sent_inputs = []
@@ -698,6 +712,22 @@ async def test_register_bot_commands_sets_slash_menu_for_autocomplete():
     assert any(command.command == "help" for command in commands)
     assert any(command.command == "attachtmux" for command in commands)
     assert any(command.command == "repeat" for command in commands)
+
+
+@pytest.mark.asyncio
+async def test_telegram_main_rejects_missing_bot_token(monkeypatch):
+    """Direct Telegram startup should fail fast with a clear error if the bot token is absent."""
+    builder = FakeApplicationBuilder()
+
+    monkeypatch.setattr(telegram_bot.Config, "TELEGRAM_BOT_TOKEN", "")
+    monkeypatch.setattr(telegram_bot.Config, "TELEGRAM_WEBHOOK_URL", "")
+    monkeypatch.setattr(telegram_bot.Application, "builder", lambda: builder)
+
+    with pytest.raises(ValueError, match="TELEGRAM_BOT_TOKEN"):
+        await telegram_bot.main()
+
+    assert builder.token_value is None
+    assert builder.build_calls == 0
 
 
 @pytest.mark.asyncio

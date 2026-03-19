@@ -8,11 +8,19 @@ from src import main as main_module
 
 
 class FakeLogger:
+    def __init__(self):
+        self.warning_messages = []
+
     def info(self, *_args, **_kwargs):
         pass
 
     def error(self, *_args, **_kwargs):
         pass
+
+    def warning(self, message, *args, **_kwargs):
+        if args:
+            message = message % args
+        self.warning_messages.append(message)
 
 
 class FakeSessionManager:
@@ -100,6 +108,7 @@ async def test_main_starts_telegram_when_bot_token_is_configured(monkeypatch):
 
     monkeypatch.setattr(main_module.Config, "validate", lambda: None)
     monkeypatch.setattr(main_module.Config, "TELEGRAM_BOT_TOKEN", "telegram-token")
+    monkeypatch.setattr(main_module.Config, "TELEGRAM_WEBHOOK_URL", "")
 
     await main_module.main()
 
@@ -107,6 +116,26 @@ async def test_main_starts_telegram_when_bot_token_is_configured(monkeypatch):
     assert FakeUvicornServer.instances[0].serve_calls == 1
     assert len(telegram_main_calls) == 1
     assert isinstance(telegram_main_calls[0], FakeSessionManager)
+
+
+@pytest.mark.asyncio
+async def test_main_skips_telegram_in_webhook_mode(monkeypatch):
+    """Combined startup should skip Telegram when webhook mode would collide with the web server port."""
+    FakeUvicornServer.instances.clear()
+    fake_logger = FakeLogger()
+    _web_injections, _telegram_injections, telegram_main_calls = _install_main_fakes(monkeypatch)
+
+    monkeypatch.setattr(main_module, "get_logger", lambda _name: fake_logger)
+    monkeypatch.setattr(main_module.Config, "validate", lambda: None)
+    monkeypatch.setattr(main_module.Config, "TELEGRAM_BOT_TOKEN", "telegram-token")
+    monkeypatch.setattr(main_module.Config, "TELEGRAM_WEBHOOK_URL", "https://example.com/webhook")
+
+    await main_module.main()
+
+    assert len(FakeUvicornServer.instances) == 1
+    assert FakeUvicornServer.instances[0].serve_calls == 1
+    assert telegram_main_calls == []
+    assert any("webhook mode" in message.lower() for message in fake_logger.warning_messages)
 
 
 @pytest.mark.asyncio

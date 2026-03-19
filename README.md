@@ -14,7 +14,7 @@ TeleCLI is a web-based terminal interface that allows users to interact with com
 
 ## Prerequisites
 
-- Python 3.8 or higher
+- Python 3.10 or higher
 - Linux/macOS/Windows (Linux recommended for full terminal compatibility)
 - Telegram Bot Token (optional, for Telegram integration)
 
@@ -85,6 +85,7 @@ python -m src.main
 ```
 
 The application will start both the web server and Telegram bot (if configured).
+When `TELEGRAM_WEBHOOK_URL` is configured, the combined `src.main` entrypoint starts only the web server to avoid binding `WEB_PORT` twice; run the Telegram bot separately for webhook deployments.
 When running from a git worktree, `run_web.sh` will also accept a shared `.env` from a parent checkout directory.
 
 ### Production Deployment
