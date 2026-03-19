@@ -1,6 +1,5 @@
 """Tests for tmux helpers."""
 
-from hashlib import sha256
 from types import SimpleNamespace
 
 import pytest
@@ -54,15 +53,13 @@ def test_get_tmux_interaction_recommendation_reports_signature_and_interactivity
         "alternate_screen": True,
         "interactive": True,
     })
-    monkeypatch.setattr(tmux, "capture_tmux_pane", lambda session_name, lines=40: "vim screen\n")
 
     recommendation = tmux.get_tmux_interaction_recommendation("dev-shell")
-    expected_digest = sha256("vim screen\n".encode("utf-8")).hexdigest()[:12]
 
     assert recommendation["supports_agent_mode"] is True
     assert recommendation["should_suggest_agent_mode"] is True
     assert recommendation["reason"] == "vim"
-    assert recommendation["signature"] == f"dev-shell:%1:vim:{expected_digest}"
+    assert recommendation["signature"] == "dev-shell:%1:vim:1"
     assert recommendation["pane"]["interactive"] is True
 
 
@@ -83,3 +80,19 @@ def test_send_tmux_key_maps_common_aliases(monkeypatch):
     tmux.send_tmux_key("dev-shell", "ctrl-c")
 
     assert calls[0][-3:] == ["-t", "dev-shell", "C-c"]
+
+
+def test_send_tmux_key_rejects_unknown_keys():
+    with pytest.raises(ValueError, match="Unsupported tmux key"):
+        tmux.send_tmux_key("dev-shell", "ctrl-x")
+
+
+def test_get_tmux_path_requires_tmux_binary(monkeypatch):
+    monkeypatch.setattr(
+        tmux.shutil,
+        "which",
+        lambda name: None,
+    )
+
+    with pytest.raises(ValueError, match="tmux is not installed"):
+        tmux.capture_tmux_pane("dev-shell")

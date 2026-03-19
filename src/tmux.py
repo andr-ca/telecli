@@ -3,7 +3,6 @@ tmux discovery helpers used by session management.
 """
 from __future__ import annotations
 
-import hashlib
 import logging
 import shutil
 import subprocess
@@ -120,13 +119,13 @@ def send_tmux_key(session_name: str, key_name: str) -> None:
 def get_tmux_interaction_recommendation(session_name: str) -> dict:
     """Summarize whether tmux suggests an interactive agent-mode session."""
     pane = get_tmux_pane_state(session_name)
-    snapshot = capture_tmux_pane(session_name, lines=40)
-    digest = hashlib.sha256(snapshot.encode("utf-8")).hexdigest()[:12]
     return {
         "supports_agent_mode": True,
         "should_suggest_agent_mode": pane["interactive"],
         "reason": pane["current_command"] or "unknown",
-        "signature": f"{session_name}:{pane['pane_id']}:{pane['current_command']}:{digest}",
+        "signature": (
+            f"{session_name}:{pane['pane_id']}:{pane['current_command']}:{int(pane['alternate_screen'])}"
+        ),
         "pane": pane,
     }
 
