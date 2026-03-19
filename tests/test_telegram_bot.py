@@ -968,6 +968,9 @@ async def test_register_bot_commands_sets_slash_menu_for_autocomplete():
     commands = bot.set_my_commands_calls[0]
     assert any(command.command == "help" for command in commands)
     assert any(command.command == "attachtmux" for command in commands)
+    assert any(command.command == "mode" for command in commands)
+    assert any(command.command == "snapshot" for command in commands)
+    assert any(command.command == "tail" for command in commands)
     assert any(command.command == "repeat" for command in commands)
 
 
@@ -1000,4 +1003,7 @@ async def test_help_command_lists_commands_and_autocomplete_hint(monkeypatch):
     assert "Use Telegram's / menu to autocomplete commands." in rendered
     assert "/attachtmux <tmux-name> [alias]" in rendered
     assert "/newtmux <tmux-name> [alias]" in rendered
+    assert "/mode <shell|agent|status>" in rendered
+    assert "/snapshot" in rendered
+    assert "/tail [lines]" in rendered
     assert "/repeat - Repeat the last terminal output" in rendered
