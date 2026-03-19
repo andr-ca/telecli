@@ -30,8 +30,6 @@ session_manager: SessionManager = None
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 PROMPT_LINE_RE = re.compile(r"^.*[$#>] ?$")
-INITIAL_COMMAND_OUTPUT_TIMEOUT_SECONDS = 3.0
-FOLLOW_UP_COMMAND_OUTPUT_TIMEOUT_SECONDS = 0.25
 
 
 COMMAND_SPECS = [
@@ -175,9 +173,6 @@ def _allocate_alias(state: TelegramUserSessions, session_id: str, preferred_alia
         alias = session_id
 
     if alias in state.sessions and state.sessions[alias] != session_id:
-        if preferred_alias:
-            raise ValueError(f"Alias '{alias}' is already in use")
-
         suffix = 2
         candidate = f"{alias}-{suffix}"
         while candidate in state.sessions and state.sessions[candidate] != session_id:
@@ -330,6 +325,21 @@ def _format_command_output(command: str, output: str) -> str:
     return rendered or "(no new output)"
 
 
+def _chunk_has_meaningful_output(command: str, chunk: str) -> bool:
+    """Return True when a chunk contains output beyond prompt and command echo."""
+    clean = _strip_ansi(chunk)
+    for raw_line in clean.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line == command.strip():
+            continue
+        if PROMPT_LINE_RE.match(line):
+            continue
+        return True
+    return False
+
+
 async def _reply_in_chunks(update: Update, text: str) -> None:
     for start in range(0, len(text), 4000):
         await update.message.reply_text(text[start:start + 4000])
@@ -360,9 +370,9 @@ async def _execute_session_command(session_id: str, command: str) -> str:
             # Some CLI tools, including ccusage, echo the command immediately but only render
             # useful output later. Keep the longer startup timeout until we see post-echo content.
             timeout = (
-                INITIAL_COMMAND_OUTPUT_TIMEOUT_SECONDS
+                Config.TELEGRAM_COMMAND_INITIAL_OUTPUT_TIMEOUT_SECONDS
                 if not saw_meaningful_output
-                else FOLLOW_UP_COMMAND_OUTPUT_TIMEOUT_SECONDS
+                else Config.TELEGRAM_COMMAND_FOLLOW_UP_OUTPUT_TIMEOUT_SECONDS
             )
             try:
                 chunk = await asyncio.wait_for(stream_iter.__anext__(), timeout=timeout)
@@ -382,7 +392,8 @@ async def _execute_session_command(session_id: str, command: str) -> str:
                 continue
 
             collected.append(chunk)
-            saw_meaningful_output = _format_command_output(command, "".join(collected)) != "(no new output)"
+            if not saw_meaningful_output and _chunk_has_meaningful_output(command, chunk):
+                saw_meaningful_output = True
     finally:
         await stream.aclose()
 
@@ -461,9 +472,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.warning(f"Unauthorized Telegram user: {user_id}")
         return
 
-    session_id = _get_current_session_id(user_id)
+    state = _get_user_sessions(user_id)
+    session_id = state.sessions[state.current_alias]
     await update.message.reply_text(
-        f"Welcome to TeleCLI! Your current Telegram session is `main` ({session_id}).\n\n"
+        f"Welcome to TeleCLI! Your current Telegram session is `{state.current_alias}` ({session_id}).\n\n"
         f"{_render_help()}"
     )
     logger.info(f"User {user_id} started bot")
@@ -516,6 +528,10 @@ async def newsession_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     alias = " ".join(context.args).strip()
+    if not alias:
+        await update.message.reply_text("Session name cannot be empty")
+        return
+
     state = _get_user_sessions(user_id)
     if alias in state.sessions:
         await update.message.reply_text(f"Session '{alias}' already exists")

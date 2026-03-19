@@ -279,7 +279,7 @@ class FakeSessionManager:
 
 class DelayedFirstChunkSessionManager(FakeSessionManager):
     async def get_output_stream(self, session_id: str):
-        await asyncio.sleep(1.2)
+        await asyncio.sleep(0.02)
         for chunk in self.stream_chunks.get(session_id, []):
             yield chunk
 
@@ -293,7 +293,7 @@ class EchoThenDelayedOutputSessionManager(FakeSessionManager):
         if len(chunks) > 1:
             yield chunks[1]
         if len(chunks) > 2:
-            await asyncio.sleep(1.2)
+            await asyncio.sleep(0.02)
             for chunk in chunks[2:]:
                 yield chunk
 
@@ -303,6 +303,18 @@ def reset_telegram_bot_state(monkeypatch):
     monkeypatch.setattr(telegram_bot, "session_manager", None)
     monkeypatch.setattr(telegram_bot, "_telegram_user_sessions", {}, raising=False)
     monkeypatch.setattr(telegram_bot.Config, "ALLOWED_TELEGRAM_USERS", "")
+    monkeypatch.setattr(
+        telegram_bot.Config,
+        "TELEGRAM_COMMAND_INITIAL_OUTPUT_TIMEOUT_SECONDS",
+        0.05,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        telegram_bot.Config,
+        "TELEGRAM_COMMAND_FOLLOW_UP_OUTPUT_TIMEOUT_SECONDS",
+        0.01,
+        raising=False,
+    )
 
 
 @pytest.mark.asyncio
@@ -406,6 +418,33 @@ async def test_newsession_then_use_session_routes_commands_to_selected_session(m
 
 
 @pytest.mark.asyncio
+async def test_start_reports_current_alias(monkeypatch):
+    """Start should report the user's actual current Telegram alias."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+
+    await telegram_bot.newsession_command(FakeUpdate(777, "/newsession build"), SimpleNamespace(args=["build"]))
+
+    update = FakeUpdate(777, "/start")
+    await telegram_bot.start(update, SimpleNamespace(args=[]))
+
+    assert "current Telegram session is `build` (web-1)" in update.message.replies[0][0]
+
+
+@pytest.mark.asyncio
+async def test_newsession_rejects_whitespace_only_names(monkeypatch):
+    """Telegram should reject whitespace-only session names."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+
+    update = FakeUpdate(777, "/newsession    ")
+    await telegram_bot.newsession_command(update, SimpleNamespace(args=["   "]))
+
+    assert manager.created_sessions == []
+    assert update.message.replies == [("Session name cannot be empty", {})]
+
+
+@pytest.mark.asyncio
 async def test_usesession_without_args_shows_session_picker(monkeypatch):
     """Telegram should offer a picker when /usesession is invoked without an argument."""
     manager = FakeSessionManager()
@@ -444,6 +483,40 @@ async def test_session_picker_callback_switches_current_session(monkeypatch):
     assert state.current_alias == "build"
     assert update.callback_query.answers == [{"text": None, "show_alert": False}]
     assert update.callback_query.edits[0][0] == "Switched to session 'build'"
+
+
+@pytest.mark.asyncio
+async def test_usesession_allocates_unique_alias_when_session_name_collides(monkeypatch):
+    """Switching to a known session should not fail if its name collides with an existing alias."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+
+    manager.create_session_entry("main")
+    update = FakeUpdate(777, "/usesession web-1")
+
+    await telegram_bot.usesession_command(update, SimpleNamespace(args=["web-1"]))
+
+    state = telegram_bot._get_user_sessions(777)
+    assert state.current_alias == "main-2"
+    assert state.sessions["main-2"] == "web-1"
+    assert update.message.replies == [("Switched to session 'main-2'", {})]
+
+
+@pytest.mark.asyncio
+async def test_session_picker_allocates_unique_alias_when_session_name_collides(monkeypatch):
+    """Session picker should not fail if the target session name collides with an existing alias."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+
+    manager.create_session_entry("main")
+    update = FakeCallbackUpdate(777, "use-session:web-1", message=FakeMessage("Pick a session"))
+
+    await telegram_bot.handle_session_picker(update, SimpleNamespace())
+
+    state = telegram_bot._get_user_sessions(777)
+    assert state.current_alias == "main-2"
+    assert state.sessions["main-2"] == "web-1"
+    assert update.callback_query.edits[0][0] == "Switched to session 'main-2'"
 
 
 @pytest.mark.asyncio

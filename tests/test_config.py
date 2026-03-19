@@ -13,6 +13,8 @@ def test_config_defaults():
     assert isinstance(Config.SESSION_REGISTRY_PATH, str) and Config.SESSION_REGISTRY_PATH
     assert Config.CLAUDE_CODE_AUTO_CONTINUE_GRACE_SECONDS >= 0
     assert Config.CLAUDE_CODE_CCUSAGE_TIMEOUT_SECONDS >= 1
+    assert Config.TELEGRAM_COMMAND_INITIAL_OUTPUT_TIMEOUT_SECONDS >= 0.01
+    assert Config.TELEGRAM_COMMAND_FOLLOW_UP_OUTPUT_TIMEOUT_SECONDS >= 0.001
 
 
 def test_config_validation_does_not_require_telegram_token_without_webhook(monkeypatch):

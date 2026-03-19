@@ -121,6 +121,16 @@ class Config:
         15.0,
         min_value=1.0,
     )
+    TELEGRAM_COMMAND_INITIAL_OUTPUT_TIMEOUT_SECONDS = _get_float(
+        "TELEGRAM_COMMAND_INITIAL_OUTPUT_TIMEOUT_SECONDS",
+        3.0,
+        min_value=0.01,
+    )
+    TELEGRAM_COMMAND_FOLLOW_UP_OUTPUT_TIMEOUT_SECONDS = _get_float(
+        "TELEGRAM_COMMAND_FOLLOW_UP_OUTPUT_TIMEOUT_SECONDS",
+        0.25,
+        min_value=0.001,
+    )
 
     @classmethod
     def validate(cls):

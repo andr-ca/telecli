@@ -52,6 +52,8 @@ if [ -z "$ENV_FILE" ]; then
     exit 1
 fi
 
+echo "Using environment file: $ENV_FILE"
+
 # Create virtual environment if it doesn't exist
 if [ ! -d venv ]; then
     echo "Creating virtual environment..."

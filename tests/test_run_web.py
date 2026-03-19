@@ -98,6 +98,7 @@ def test_run_web_script_uses_parent_env_file_for_worktree(tmp_path):
 
     assert completed.returncode == 0, completed.stderr
     assert (worktree / "python-args.txt").read_text(encoding="utf-8").splitlines() == ["-m", "src.main"]
+    assert f"Using environment file: {tmp_path / 'repo' / '.env'}" in completed.stdout
 
 
 def test_run_web_script_execs_python_entrypoint(tmp_path):
