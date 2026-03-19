@@ -78,11 +78,32 @@ async def main():
     
     telegram_task = None
 
+    def _on_telegram_done(task: asyncio.Task) -> None:
+        # This callback runs in the event loop thread; it must not be async.
+        try:
+            exc = task.exception()
+        except asyncio.CancelledError:
+            # Task was cancelled as part of shutdown; no further action needed.
+            return
+        if exc is None:
+            logger.info("Telegram bot task finished normally; stopping web server.")
+        else:
+            logger.error("Telegram bot task stopped with error: %s", exc)
+        # Trigger graceful shutdown of the uvicorn server.
+        server.should_exit = True
+
     # Run services, and tie Telegram lifecycle to the web server process.
     try:
         if telegram_enabled and not telegram_webhook_mode:
             telegram_task = asyncio.create_task(telegram_bot.main(shared_session_manager))
+            telegram_task.add_done_callback(_on_telegram_done)
+            # Let the event loop run once so failures during Telegram startup surface immediately.
             await asyncio.sleep(0)
+            if telegram_task.done():
+                exc = telegram_task.exception()
+                if exc is not None:
+                    logger.error("Telegram bot failed to start: %s", exc)
+                    raise exc
 
         await server.serve()
     except (KeyboardInterrupt, SystemExit):
