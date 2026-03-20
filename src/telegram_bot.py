@@ -1163,7 +1163,7 @@ async def key_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     key_name = context.args[0].lower()
     try:
-        _require_session_manager().send_special_key(session_id, key_name)
+        await _require_session_manager().send_special_key_async(session_id, key_name)
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {str(e)}")
         return
@@ -1182,7 +1182,7 @@ async def continue_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     try:
         manager = _require_session_manager()
         await manager.send_exact_input(session_id, "continue")
-        manager.send_special_key(session_id, "enter")
+        await manager.send_special_key_async(session_id, "enter")
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {str(e)}")
         return
@@ -1199,7 +1199,7 @@ async def interrupt_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     session_id = _get_current_session_id(user_id)
     try:
-        _require_session_manager().send_special_key(session_id, "ctrl-c")
+        await _require_session_manager().send_special_key_async(session_id, "ctrl-c")
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {str(e)}")
         return
@@ -1496,7 +1496,7 @@ async def handle_command_picker(update: Update, context: ContextTypes.DEFAULT_TY
 
     if command_name == "key":
         try:
-            _require_session_manager().send_special_key(session_id, action)
+            await _require_session_manager().send_special_key_async(session_id, action)
         except Exception as e:
             await query.edit_message_text(f"❌ Error: {str(e)}")
             return
@@ -1569,9 +1569,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if _get_session_mode(user_id, session_id) == "agent":
             manager = _require_session_manager()
             await manager.send_exact_input(session_id, command)
-            manager.send_special_key(session_id, "enter")
+            await manager.send_special_key_async(session_id, "enter")
             await _reply_with_current_screen(update, session_id, fallback_text="Sent to agent session")
-            logger.info(f"User {user_id} sent agent-mode text to session {session_id}: {command[:50]}...")
+            logger.info(
+                "User %s sent agent-mode text to session %s (len=%s)",
+                user_id,
+                session_id,
+                len(command),
+            )
             return
 
         output = await _execute_session_command(session_id, command)

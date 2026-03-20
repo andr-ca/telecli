@@ -129,6 +129,7 @@ class FakeSessionManager:
         self.sent_inputs = []
         self.exact_inputs = []
         self.special_keys = []
+        self.async_special_keys = []
         self.created_sessions = []
         self.deleted_sessions = []
         self.renamed_sessions = []
@@ -178,6 +179,10 @@ class FakeSessionManager:
 
     def send_special_key(self, session_id: str, key_name: str):
         self.special_keys.append((session_id, key_name))
+
+    async def send_special_key_async(self, session_id: str, key_name: str):
+        self.async_special_keys.append((session_id, key_name))
+        self.send_special_key(session_id, key_name)
 
     async def get_output_stream(self, session_id: str):
         for chunk in self.stream_chunks.get(session_id, []):
@@ -787,8 +792,29 @@ async def test_handle_message_uses_exact_send_in_agent_mode(monkeypatch):
 
     assert manager.exact_inputs == [("tmux-1", "continue")]
     assert manager.special_keys == [("tmux-1", "enter")]
+    assert manager.async_special_keys == [("tmux-1", "enter")]
     assert manager.sent_inputs == []
     assert update.message.replies == [("<pre>Claude is waiting\n&gt; </pre>", {"parse_mode": "HTML"})]
+
+
+@pytest.mark.asyncio
+async def test_handle_message_agent_mode_logs_metadata_not_raw_text(monkeypatch, caplog):
+    """Agent mode logs should avoid raw message content at INFO level."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+    await telegram_bot.attachtmux_command(
+        FakeUpdate(777, "/attachtmux ops-shell Ops Shell"),
+        SimpleNamespace(args=["ops-shell", "Ops", "Shell"]),
+    )
+    telegram_bot._get_user_sessions(777).session_modes["tmux-1"] = "agent"
+
+    secret = "sk-test-agent-secret"
+    update = FakeUpdate(777, secret)
+    with caplog.at_level("INFO"):
+        await telegram_bot.handle_message(update, SimpleNamespace())
+
+    assert secret not in caplog.text
+    assert "len=" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -1138,6 +1164,7 @@ async def test_key_command_sends_named_special_key(monkeypatch):
     update = FakeUpdate(777, "/key enter")
     await telegram_bot.key_command(update, SimpleNamespace(args=["enter"]))
 
+    assert manager.async_special_keys == [("tmux-1", "enter")]
     assert manager.special_keys == [("tmux-1", "enter")]
     assert update.message.replies == [("<pre>Claude is waiting\n&gt; </pre>", {"parse_mode": "HTML"})]
 
@@ -1155,6 +1182,7 @@ async def test_key_command_supports_navigation_and_control_keys(monkeypatch):
     update = FakeUpdate(777, "/key left")
     await telegram_bot.key_command(update, SimpleNamespace(args=["left"]))
 
+    assert manager.async_special_keys == [("tmux-1", "left")]
     assert manager.special_keys == [("tmux-1", "left")]
     assert update.message.replies == [("<pre>Claude is waiting\n&gt; </pre>", {"parse_mode": "HTML"})]
 
@@ -1173,6 +1201,7 @@ async def test_continue_command_sends_continue_and_enter(monkeypatch):
     await telegram_bot.continue_command(update, SimpleNamespace(args=[]))
 
     assert manager.exact_inputs == [("tmux-1", "continue")]
+    assert manager.async_special_keys == [("tmux-1", "enter")]
     assert manager.special_keys == [("tmux-1", "enter")]
     assert update.message.replies == [("<pre>Claude is waiting\n&gt; </pre>", {"parse_mode": "HTML"})]
 
@@ -1190,6 +1219,7 @@ async def test_interrupt_command_sends_ctrl_c(monkeypatch):
     update = FakeUpdate(777, "/interrupt")
     await telegram_bot.interrupt_command(update, SimpleNamespace(args=[]))
 
+    assert manager.async_special_keys == [("tmux-1", "ctrl-c")]
     assert manager.special_keys == [("tmux-1", "ctrl-c")]
     assert update.message.replies == [("<pre>Claude is waiting\n&gt; </pre>", {"parse_mode": "HTML"})]
 

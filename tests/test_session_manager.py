@@ -386,6 +386,23 @@ async def test_session_manager_send_exact_input_uses_non_newline_send(monkeypatc
     assert calls == [("web-1", "continue", False, False)]
 
 
+@pytest.mark.asyncio
+async def test_session_manager_send_special_key_async_uses_worker_thread(monkeypatch):
+    """Async key sending should offload the blocking tmux call to a worker thread."""
+    manager = SessionManager()
+    calls = []
+
+    async def fake_to_thread(func, *args, **kwargs):
+        calls.append((func.__name__, args, kwargs))
+        return None
+
+    monkeypatch.setattr("src.session_manager.asyncio.to_thread", fake_to_thread)
+
+    await manager.send_special_key_async("tmux-session-1", "enter")
+
+    assert calls == [("send_special_key", ("tmux-session-1", "enter"), {})]
+
+
 def test_session_manager_send_special_key_delegates_for_tmux(tmp_path, monkeypatch):
     """Special keys should delegate to tmux for tmux-backed sessions."""
     manager = SessionManager(registry_path=tmp_path / "tmux-session-registry.json")

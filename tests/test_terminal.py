@@ -1,6 +1,7 @@
 """Tests for terminal module"""
 import pytest
 import asyncio
+from src import terminal
 from src.terminal import TerminalSession
 
 
@@ -48,6 +49,17 @@ async def test_terminal_session_send_command_uses_running_loop(monkeypatch):
         assert "hello" in output
     finally:
         await session.stop()
+
+
+def test_append_incremental_output_skips_join_when_no_new_chunks(monkeypatch):
+    """Incremental output helper should not rebuild the buffer when nothing new arrived."""
+    monkeypatch.setattr(
+        terminal,
+        "_join_output_chunks",
+        lambda chunks: (_ for _ in ()).throw(AssertionError("join should not be called")),  # noqa: E731
+    )
+
+    assert terminal._append_incremental_output("existing output", []) == "existing output"
 
 
 # TODO: Add tests for:

@@ -12,6 +12,16 @@ from src.config import Config
 
 logger = logging.getLogger(__name__)
 
+
+def _join_output_chunks(chunks: list[str]) -> str:
+    return ''.join(chunks)
+
+
+def _append_incremental_output(output: str, new_chunks: list[str]) -> str:
+    if not new_chunks:
+        return output
+    return output + _join_output_chunks(new_chunks)
+
 # Only remove bell character and a few problematic control codes
 # Keep ANSI codes for colors/formatting (needed for interactive tools like claude)
 CONTROL_CHARS_TO_REMOVE = re.compile(r'[\x07]')  # Only bell (0x07)
@@ -195,12 +205,12 @@ class TerminalSession:
         loop = asyncio.get_running_loop()
         deadline = loop.time() + timeout
         history_index = history_start
-        collected_chunks: list[str] = []
+        output = ""
         while loop.time() < deadline:
             if history_index < len(self._history):
-                collected_chunks.extend(self._history[history_index:])
+                new_chunks = self._history[history_index:]
                 history_index = len(self._history)
-            output = ''.join(collected_chunks)
+                output = _append_incremental_output(output, new_chunks)
             if marker in output:
                 return output.split(marker, 1)[0]
             await asyncio.sleep(0.01)

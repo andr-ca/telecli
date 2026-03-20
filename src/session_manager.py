@@ -3,6 +3,7 @@ Session manager for coordinating multiple terminal sessions.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import secrets
@@ -453,6 +454,10 @@ class SessionManager:
             raise ValueError("Agent mode requires a tmux-backed session")
 
         send_tmux_key(record.tmux_session_name, key_name)
+
+    async def send_special_key_async(self, session_id: str, key_name: str) -> None:
+        """Offload blocking tmux key sending for async callers."""
+        await asyncio.to_thread(self.send_special_key, session_id, key_name)
 
     async def enable_ai_proxy(
         self,
