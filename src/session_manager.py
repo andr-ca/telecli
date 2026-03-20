@@ -3,9 +3,11 @@ Session manager for coordinating multiple terminal sessions.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import secrets
+import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,9 +19,19 @@ from src.config import Config
 from src.llm_provider import LLMProviderFactory
 from src.llm_providers import *  # Register all providers
 from src.terminal import TerminalSession, TmuxSession
-from src.tmux import create_tmux_session, list_tmux_sessions, tmux_session_exists
+from src.tmux import (
+    capture_tmux_pane,
+    capture_tmux_screen,
+    create_tmux_session,
+    get_tmux_interaction_recommendation,
+    get_tmux_pane_state,
+    list_tmux_sessions,
+    send_tmux_key,
+    tmux_session_exists,
+)
 
 logger = logging.getLogger(__name__)
+_TMUX_AVAILABILITY_CACHE_TTL_SECONDS = 1.0
 
 
 def _utc_now_iso() -> str:
@@ -44,16 +56,25 @@ class SessionManager:
         self,
         max_sessions: int = Config.TERMINAL_MAX_SESSIONS,
         registry_path: Optional[Path] = None,
+        user_id: Optional[str] = None,
     ):
         self.max_sessions = max_sessions
         self.registry_path = Path(registry_path) if registry_path else Path(Config.SESSION_REGISTRY_PATH)
+        self.user_id = user_id
+        self.default_session_id = user_id or "default"
         self.sessions: dict[str, TerminalSession | TmuxSession] = {}
         self.session_records: dict[str, SessionRecord] = {}
         self.session_count = 0
         self.ai_proxies: dict[str, AIProxy] = {}
         self.claude_code_auto_controllers: dict[str, ClaudeCodeAutoContinue] = {}
         self.monitor_callback = None
+        self._tmux_availability_cache: dict[str, tuple[float, bool]] = {}
         self._load_persisted_tmux_records()
+
+    @property
+    def ai_proxy(self) -> Optional[AIProxy]:
+        """Backward-compatible accessor for the default session AI proxy."""
+        return self.ai_proxies.get(self.default_session_id)
 
     def _load_persisted_tmux_records(self) -> None:
         if not self.registry_path.exists():
@@ -141,8 +162,18 @@ class SessionManager:
         if runtime and runtime.is_active:
             return True
         if record.backend == "tmux" and record.tmux_session_name:
-            return tmux_session_exists(record.tmux_session_name)
+            return self._tmux_session_available(record.tmux_session_name)
         return False
+
+    def _tmux_session_available(self, session_name: str) -> bool:
+        cached = self._tmux_availability_cache.get(session_name)
+        now = time.monotonic()
+        if cached and now - cached[0] < _TMUX_AVAILABILITY_CACHE_TTL_SECONDS:
+            return cached[1]
+
+        available = tmux_session_exists(session_name)
+        self._tmux_availability_cache[session_name] = (now, available)
+        return available
 
     def get_session_summary(self, session_id: str) -> dict:
         record = self._resolve_record(session_id)
@@ -167,6 +198,34 @@ class SessionManager:
             "available": available,
             "tmux_session_name": record.tmux_session_name,
         }
+
+    def get_session_mode_capabilities(self, session_id: str) -> dict:
+        """Describe whether the session supports Telegram agent mode."""
+        record = self._resolve_record(session_id)
+        tmux_available = bool(
+            record.backend == "tmux"
+            and record.tmux_session_name
+            and self._tmux_session_available(record.tmux_session_name)
+        )
+        return {
+            "backend": record.backend,
+            "supports_agent_mode": tmux_available,
+            "tmux_session_name": record.tmux_session_name,
+        }
+
+    def get_agent_mode_recommendation(self, session_id: str) -> dict:
+        """Return a recommendation summary for Telegram agent mode."""
+        record = self._resolve_record(session_id)
+        capabilities = self.get_session_mode_capabilities(session_id)
+        if not capabilities["supports_agent_mode"]:
+            return {
+                "supports_agent_mode": False,
+                "should_suggest_agent_mode": False,
+                "reason": "Session is not tmux-backed or backing tmux session is unavailable",
+                "signature": None,
+            }
+
+        return get_tmux_interaction_recommendation(record.tmux_session_name)
 
     def list_sessions(self) -> list[dict]:
         for session_id in list(self.sessions):
@@ -205,6 +264,11 @@ class SessionManager:
         machine_sessions = []
         for session in list_tmux_sessions():
             imported_record = imported_by_tmux_name.get(session["name"])
+            try:
+                pane = get_tmux_pane_state(session["name"])
+            except ValueError as exc:
+                logger.debug("Failed to inspect tmux pane state for %s: %s", session["name"], exc)
+                pane = {}
             machine_sessions.append(
                 {
                     "name": session["name"],
@@ -213,6 +277,12 @@ class SessionManager:
                     "imported": imported_record is not None,
                     "imported_session_id": imported_record.session_id if imported_record else None,
                     "imported_name": imported_record.name if imported_record else None,
+                    "pane_id": pane.get("pane_id"),
+                    "current_command": pane.get("current_command"),
+                    "current_path": pane.get("current_path"),
+                    "pane_paths": pane.get("pane_paths", []),
+                    "alternate_screen": pane.get("alternate_screen", False),
+                    "interactive": pane.get("interactive", False),
                 }
             )
 
@@ -370,17 +440,56 @@ class SessionManager:
         async for chunk in session.get_output_stream():
             yield chunk
 
+    def capture_session_snapshot(self, session_id: str, *, lines: int = 80) -> str:
+        """Capture a stable snapshot for tmux-backed sessions."""
+        record = self._resolve_record(session_id)
+        if record.backend != "tmux" or not record.tmux_session_name:
+            raise ValueError("Agent mode requires a tmux-backed session")
+
+        return capture_tmux_pane(record.tmux_session_name, lines=lines)
+
+    def capture_session_screen(self, session_id: str) -> str:
+        """Capture the currently visible pane for tmux-backed sessions."""
+        record = self._resolve_record(session_id)
+        if record.backend != "tmux" or not record.tmux_session_name:
+            raise ValueError("Agent mode requires a tmux-backed session")
+
+        return capture_tmux_screen(record.tmux_session_name)
+
+    def tail_session_output(self, session_id: str, *, lines: int = 20) -> str:
+        """Return the last N lines from a tmux pane snapshot."""
+        snapshot = self.capture_session_snapshot(session_id, lines=max(lines, 80))
+        return "\n".join(snapshot.splitlines()[-lines:])
+
+    async def send_exact_input(self, session_id: str, text: str) -> None:
+        """Send raw text without appending a newline."""
+        await self.send_input(session_id, text, newline=False, from_ai=False)
+
+    def send_special_key(self, session_id: str, key_name: str) -> None:
+        """Send a normalized key sequence to a tmux-backed session."""
+        record = self._resolve_record(session_id)
+        if record.backend != "tmux" or not record.tmux_session_name:
+            raise ValueError("Agent mode requires a tmux-backed session")
+
+        send_tmux_key(record.tmux_session_name, key_name)
+
+    async def send_special_key_async(self, session_id: str, key_name: str) -> None:
+        """Offload blocking tmux key sending for async callers."""
+        await asyncio.to_thread(self.send_special_key, session_id, key_name)
+
     async def enable_ai_proxy(
         self,
-        session_id: str,
+        session_id: Optional[str] = None,
         provider_name: Optional[str] = None,
         system_prompt: Optional[str] = None,
+        primary_provider: Optional[str] = None,
     ) -> bool:
         """Enable AI proxy for a session."""
+        session_id = session_id or self.default_session_id
         if session_id not in self.session_records and session_id not in self.sessions:
             self._ensure_record(session_id, backend="telecli")
 
-        provider_name = provider_name or Config.AI_PROXY_PROVIDER
+        provider_name = provider_name or primary_provider or Config.AI_PROXY_PROVIDER
         llm_provider = LLMProviderFactory.create(provider_name)
         if not llm_provider:
             logger.error("Failed to create LLM provider: %s", provider_name)

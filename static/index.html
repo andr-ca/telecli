@@ -152,8 +152,8 @@
             style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1000; align-items: center; justify-content: center;">
             <div class="modal-content session-manager-modal" style="padding: 30px; max-width: 640px; width: 92%;">
                 <h2 style="margin-top: 0;">📋 Session Manager</h2>
-                <p class="session-modal-subtitle">Create named TeleCLI sessions or attach an existing tmux session
-                    only when you want it in TeleCLI.</p>
+                <p class="session-modal-subtitle">Create a named TeleCLI session, attach an existing tmux session, or
+                    switch to one of the sessions already listed below.</p>
 
                 <div style="margin: 20px 0;">
                     <div class="session-toolbar">
@@ -1186,11 +1186,33 @@
         }
 
         function renderTmuxSessionRow(session) {
+            const importedSessionId = session.imported_session_id
+                ? ` [${escapeHtml(session.imported_session_id)}]`
+                : '';
             const importedLabel = session.imported && session.imported_name
-                ? `<div class="session-item-note">TeleCLI name: ${escapeHtml(session.imported_name)}</div>`
+                ? `<div class="session-item-note">TeleCLI: ${escapeHtml(session.imported_name)}${importedSessionId}</div>`
+                : '';
+            const panePaths = Array.isArray(session.pane_paths) && session.pane_paths.length > 0
+                ? session.pane_paths
+                : (session.current_path ? [session.current_path] : []);
+            const pathPreview = panePaths.slice(0, 3).map((path) => escapeHtml(path)).join(' · ');
+            const hiddenPathCount = Math.max(panePaths.length - 3, 0);
+            const pathCountSuffix = hiddenPathCount > 0 ? ` (+${hiddenPathCount} more)` : '';
+            const folderLabel = pathPreview
+                ? `<div class="session-item-note">Folders: ${pathPreview}${pathCountSuffix}</div>`
+                : '';
+            const activePaneParts = [];
+            if (session.current_command) {
+                activePaneParts.push(escapeHtml(session.current_command));
+            }
+            if (session.pane_id) {
+                activePaneParts.push(escapeHtml(session.pane_id));
+            }
+            const activePaneLabel = activePaneParts.length > 0
+                ? `<div class="session-item-note">Active pane: ${activePaneParts.join(' · ')}</div>`
                 : '';
             const windowsLabel = `${session.windows} window${session.windows === 1 ? '' : 's'}`;
-            const attachLabel = session.imported ? 'Open' : 'Attach';
+            const attachLabel = session.imported ? 'Open existing' : 'Attach as...';
             const attachState = session.attached ? 'Attached elsewhere' : 'Detached';
             const tmuxSessionArg = encodeURIComponent(session.name);
             const tmuxSessionAttr = escapeHtml(session.name);
@@ -1209,6 +1231,8 @@
                             <span>${windowsLabel}</span>
                             <span>${attachState}</span>
                         </div>
+                        ${folderLabel}
+                        ${activePaneLabel}
                         ${importedLabel}
                     </div>
                     <div class="session-actions">
@@ -1301,9 +1325,20 @@
 
         async function createNewSession() {
             const nameInput = document.getElementById('new-session-name');
-            const payload = {};
-            const sessionName = nameInput.value.trim();
+            let sessionName = nameInput.value.trim();
 
+            if (!sessionName) {
+                const requestedName = prompt('TeleCLI session name:', '');
+                if (requestedName === null) {
+                    return;
+                }
+                sessionName = requestedName.trim();
+                if (sessionName) {
+                    nameInput.value = sessionName;
+                }
+            }
+
+            const payload = {};
             if (sessionName) {
                 payload.name = sessionName;
             }
@@ -1410,10 +1445,21 @@
                 return;
             }
 
+            const requestedName = prompt('TeleCLI session name:', tmuxSessionName);
+            if (requestedName === null) {
+                return;
+            }
+
+            const trimmedName = requestedName.trim();
+            const payload = { tmux_session_name: tmuxSessionName };
+            if (trimmedName) {
+                payload.name = trimmedName;
+            }
+
             try {
                 const data = await apiRequest('/api/sessions/import-tmux', {
                     method: 'POST',
-                    body: JSON.stringify({ tmux_session_name: tmuxSessionName })
+                    body: JSON.stringify(payload)
                 });
                 rememberSessionMetadata(data.session);
                 await refreshTmuxSessions();

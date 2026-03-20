@@ -10,12 +10,55 @@ import subprocess
 logger = logging.getLogger(__name__)
 
 _TMUX_FORMAT = "#{session_name}\t#{session_windows}\t#{session_attached}"
+_PANE_FORMAT = "#{pane_id}\t#{pane_active}\t#{pane_current_command}\t#{alternate_on}\t#{pane_current_path}"
+_INTERACTIVE_COMMANDS = {"claude", "codex", "vim", "less", "man", "htop"}
+_SPECIAL_KEYS = {
+    "enter": "Enter",
+    "esc": "Escape",
+    "tab": "Tab",
+    "up": "Up",
+    "down": "Down",
+    "left": "Left",
+    "right": "Right",
+    "backspace": "BSpace",
+    "ctrl-c": "C-c",
+    "ctrl-d": "C-d",
+}
+
+
+def _get_tmux_path() -> str:
+    tmux_path = shutil.which("tmux")
+    if not tmux_path:
+        raise ValueError("tmux is not installed")
+    return tmux_path
+
+
+def _run_tmux_command(args: list[str]) -> subprocess.CompletedProcess:
+    tmux_path = _get_tmux_path()
+    result = subprocess.run(
+        [tmux_path, *args],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        logger.error(
+            "tmux command failed args=%s returncode=%s stdout=%r stderr=%r",
+            args,
+            result.returncode,
+            result.stdout.strip(),
+            result.stderr.strip(),
+        )
+        error_text = result.stderr.strip() or result.stdout.strip() or "tmux command failed"
+        raise ValueError(error_text)
+    return result
 
 
 def list_tmux_sessions() -> list[dict]:
     """Return tmux sessions visible on the current machine."""
-    tmux_path = shutil.which("tmux")
-    if not tmux_path:
+    try:
+        tmux_path = _get_tmux_path()
+    except ValueError:
         return []
 
     result = subprocess.run(
@@ -55,19 +98,93 @@ def tmux_session_exists(session_name: str) -> bool:
     return any(session["name"] == session_name for session in list_tmux_sessions())
 
 
+def get_tmux_pane_state(session_name: str) -> dict:
+    """Return lightweight metadata for the active tmux pane plus visible pane paths."""
+    result = _run_tmux_command(["list-panes", "-t", session_name, "-F", _PANE_FORMAT])
+    panes = []
+    pane_paths = []
+
+    for raw_line in result.stdout.splitlines():
+        if not raw_line.strip():
+            continue
+
+        pane_id, active, current_command, alternate_on, current_path = (raw_line.split("\t") + ["", "0", "", "0", ""])[:5]
+        pane = {
+            "pane_id": pane_id,
+            "active": active == "1",
+            "current_command": current_command,
+            "current_path": current_path,
+            "alternate_screen": alternate_on == "1",
+        }
+        panes.append(pane)
+        if current_path and current_path not in pane_paths:
+            pane_paths.append(current_path)
+
+    if not panes:
+        return {
+            "pane_id": "",
+            "current_command": "",
+            "current_path": "",
+            "pane_paths": [],
+            "alternate_screen": False,
+            "interactive": False,
+        }
+
+    active_pane = next((pane for pane in panes if pane["active"]), panes[0])
+    alternate_screen = active_pane["alternate_screen"]
+    current_command = active_pane["current_command"]
+    current_path = active_pane["current_path"]
+    interactive = alternate_screen or current_command.lower() in _INTERACTIVE_COMMANDS
+
+    return {
+        "pane_id": active_pane["pane_id"],
+        "current_command": current_command,
+        "current_path": current_path,
+        "pane_paths": pane_paths,
+        "alternate_screen": alternate_screen,
+        "interactive": interactive,
+    }
+
+
+def capture_tmux_pane(session_name: str, *, lines: int = 80) -> str:
+    """Capture pane contents from a tmux session."""
+    result = _run_tmux_command(["capture-pane", "-pt", session_name, "-S", f"-{lines}", "-p"])
+    return result.stdout
+
+
+def capture_tmux_screen(session_name: str) -> str:
+    """Capture only the currently visible tmux pane contents."""
+    result = _run_tmux_command(["capture-pane", "-pt", session_name, "-p"])
+    return result.stdout
+
+
+def send_tmux_key(session_name: str, key_name: str) -> None:
+    """Send a normalized tmux key sequence to the target session."""
+    mapped_key = _SPECIAL_KEYS.get(key_name.lower())
+    if not mapped_key:
+        raise ValueError(f"Unsupported tmux key: {key_name}")
+
+    _run_tmux_command(["send-keys", "-t", session_name, mapped_key])
+
+
+def _tmux_interaction_signature(session_name: str, pane: dict) -> str:
+    """Build a stable signature for agent-mode suggestion suppression."""
+    alternate_screen = int(bool(pane.get("alternate_screen")))
+    return f"{session_name}:{pane.get('pane_id', '')}:{pane.get('current_command', '')}:{alternate_screen}"
+
+
+def get_tmux_interaction_recommendation(session_name: str) -> dict:
+    """Summarize whether tmux suggests an interactive agent-mode session."""
+    pane = get_tmux_pane_state(session_name)
+    return {
+        "supports_agent_mode": True,
+        "should_suggest_agent_mode": pane["interactive"],
+        "reason": pane["current_command"] or "unknown",
+        "signature": _tmux_interaction_signature(session_name, pane),
+        "pane": pane,
+    }
+
+
 def create_tmux_session(session_name: str) -> None:
     """Create a detached tmux session on the current machine."""
-    tmux_path = shutil.which("tmux")
-    if not tmux_path:
-        raise ValueError("tmux is not installed")
-
-    result = subprocess.run(
-        [tmux_path, "new-session", "-d", "-s", session_name],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    if result.returncode != 0:
-        error_text = result.stderr.strip() or result.stdout.strip() or "tmux session creation failed"
-        raise ValueError(error_text)
+    _run_tmux_command(["new-session", "-d", "-s", session_name])

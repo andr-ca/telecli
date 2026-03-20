@@ -5,11 +5,23 @@ import pexpect
 import logging
 import asyncio
 import re
+import secrets
 import shutil
 from typing import Optional, AsyncIterator
 from src.config import Config
 
 logger = logging.getLogger(__name__)
+SEND_COMMAND_POLL_INTERVAL_SECONDS = 0.05
+
+
+def _join_output_chunks(chunks: list[str]) -> str:
+    return ''.join(chunks)
+
+
+def _append_incremental_output(output: str, new_chunks: list[str]) -> str:
+    if not new_chunks:
+        return output
+    return output + _join_output_chunks(new_chunks)
 
 # Only remove bell character and a few problematic control codes
 # Keep ANSI codes for colors/formatting (needed for interactive tools like claude)
@@ -177,13 +189,34 @@ class TerminalSession:
                 # Send input directly without executor for better responsiveness
                 if newline:
                     self.process.sendline(text)
-                    logger.info(f"Sent line to session {self.session_id}: {repr(text[:50])}")
+                    logger.info("Sent line to session %s (len=%s)", self.session_id, len(text))
                 else:
                     self.process.send(text)
-                    logger.debug(f"Sent input to session {self.session_id}: {text[:50]}...")
+                    logger.debug("Sent input to session %s (len=%s)", self.session_id, len(text))
         except Exception as e:
             logger.error(f"Error sending input to session {self.session_id}: {e}")
             raise RuntimeError(f"Failed to send input: {str(e)}")
+
+    async def send_command(self, command: str, timeout: float = 5.0) -> str:
+        """Run a shell command and return the incremental output."""
+        marker = f"__telecli_done_{secrets.token_hex(8)}__"
+        history_start = len(self._history)
+        await self.send_input(f"{command}; printf '\\n{marker}\\n'")
+
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        history_index = history_start
+        output = ""
+        while loop.time() < deadline:
+            if history_index < len(self._history):
+                new_chunks = self._history[history_index:]
+                history_index = len(self._history)
+                output = _append_incremental_output(output, new_chunks)
+            if marker in output:
+                return output.split(marker, 1)[0]
+            await asyncio.sleep(SEND_COMMAND_POLL_INTERVAL_SECONDS)
+
+        raise TimeoutError(f"Command did not complete within {timeout} seconds")
 
     async def stop(self) -> None:
         """Stop the terminal session and cleanup"""

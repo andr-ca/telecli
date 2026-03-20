@@ -716,6 +716,9 @@ def test_session_picker_creates_named_sessions_and_imports_tmux_entries(browser)
             "imported": False,
             "imported_session_id": None,
             "imported_name": None,
+            "current_command": "codex",
+            "current_path": "/workspace/ops",
+            "pane_paths": ["/workspace/ops", "/workspace/shared"],
         },
         {
             "name": "build",
@@ -724,6 +727,9 @@ def test_session_picker_creates_named_sessions_and_imports_tmux_entries(browser)
             "imported": False,
             "imported_session_id": None,
             "imported_name": None,
+            "current_command": "bash",
+            "current_path": "/workspace/build",
+            "pane_paths": ["/workspace/build"],
         },
     ]
     session_counter = 0
@@ -860,7 +866,8 @@ def test_session_picker_creates_named_sessions_and_imports_tmux_entries(browser)
     created_session_id = sessions[0]["id"]
 
     page.click("#session-btn")
-    page.on("dialog", lambda dialog: dialog.accept("Primary Dev"))
+    dialog_responses = ["Primary Dev", "ops"]
+    page.on("dialog", lambda dialog: dialog.accept(dialog_responses.pop(0)))
     page.click(f"button[data-action='rename-session'][data-session-id='{created_session_id}']")
     page.wait_for_function(
         "() => document.getElementById('session-compact')?.textContent?.includes('Primary Dev')"
@@ -871,9 +878,13 @@ def test_session_picker_creates_named_sessions_and_imports_tmux_entries(browser)
     page.wait_for_function(
         """() => {
             const text = document.getElementById('tmux-sessions-list')?.textContent?.toLowerCase() || '';
-            return text.includes('ops') && text.includes('build');
+            return text.includes('ops') && text.includes('build') && text.includes('/workspace/ops');
         }"""
     )
+    tmux_picker_text = page.locator("#tmux-sessions-list").text_content()
+    assert "/workspace/ops" in tmux_picker_text
+    assert "/workspace/shared" in tmux_picker_text
+    assert "/workspace/build" in tmux_picker_text
 
     page.click("button[data-action='import-tmux-session'][data-tmux-session-name='ops']")
     page.wait_for_function(
@@ -883,8 +894,243 @@ def test_session_picker_creates_named_sessions_and_imports_tmux_entries(browser)
     page.click("#session-btn")
     sessions_text = page.locator("#sessions-list").text_content().lower()
     assert "primary dev" in sessions_text
-    assert "ops" in sessions_text
-    assert "build" not in sessions_text
+
+    page.click("#attach-tmux-btn")
+    page.wait_for_selector("#tmux-picker-modal", state="visible")
+    assert (
+        page.locator("button[data-action='import-tmux-session'][data-tmux-session-name='ops']").text_content()
+        == "Open existing"
+    )
+
+
+def test_tmux_picker_prompts_for_session_name_on_attach(browser):
+    """Attaching a tmux session should prompt for the imported TeleCLI session name."""
+    context = browser.new_context()
+    page = context.new_page()
+    page.add_init_script(
+        """
+        (() => {
+            class FakeWebSocket {
+                constructor() {
+                    this.readyState = FakeWebSocket.CONNECTING;
+                    setTimeout(() => {
+                        this.readyState = FakeWebSocket.OPEN;
+                        if (this.onopen) {
+                            this.onopen();
+                        }
+                    }, 0);
+                }
+
+                send() {}
+
+                close() {
+                    this.readyState = FakeWebSocket.CLOSED;
+                    if (this.onclose) {
+                        this.onclose({ code: 1000 });
+                    }
+                }
+            }
+
+            FakeWebSocket.CONNECTING = 0;
+            FakeWebSocket.OPEN = 1;
+            FakeWebSocket.CLOSING = 2;
+            FakeWebSocket.CLOSED = 3;
+
+            window.WebSocket = FakeWebSocket;
+        })();
+        """
+    )
+
+    sessions = []
+    tmux_sessions = [
+        {
+            "name": "ops",
+            "windows": 3,
+            "attached": True,
+            "imported": False,
+            "imported_session_id": None,
+            "imported_name": None,
+            "current_command": "codex",
+            "current_path": "/workspace/ops",
+            "pane_paths": ["/workspace/ops"],
+        }
+    ]
+    session_counter = 0
+
+    def make_session_payload(session_id, name, backend="telecli", tmux_session_name=None):
+        shell = "/bin/bash" if backend == "telecli" else f"tmux:{tmux_session_name}"
+        return {
+            "id": session_id,
+            "name": name,
+            "backend": backend,
+            "created_at": "2026-03-18T12:00:00+00:00",
+            "shell": shell,
+            "is_active": True,
+            "available": True,
+            "tmux_session_name": tmux_session_name,
+        }
+
+    def handle_api(route):
+        nonlocal session_counter
+        request = route.request
+        path = request.url.split(BASE_URL, 1)[-1]
+
+        if path == "/api/sessions" and request.method == "GET":
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps({"sessions": sessions}),
+            )
+            return
+
+        if path == "/api/tmux/sessions" and request.method == "GET":
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps({"sessions": tmux_sessions}),
+            )
+            return
+
+        if path == "/api/sessions/import-tmux" and request.method == "POST":
+            payload = json.loads(request.post_data or "{}")
+            session_counter += 1
+            session = make_session_payload(
+                f"tmux-imported-{session_counter}",
+                payload.get("name") or payload["tmux_session_name"],
+                backend="tmux",
+                tmux_session_name=payload["tmux_session_name"],
+            )
+            sessions.append(session)
+            tmux_sessions[0]["imported"] = True
+            tmux_sessions[0]["imported_session_id"] = session["id"]
+            tmux_sessions[0]["imported_name"] = session["name"]
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps({"session": session}),
+            )
+            return
+
+        route.fallback()
+
+    page.route("**/api/sessions", handle_api)
+    page.route("**/api/tmux/sessions", handle_api)
+    page.route("**/api/sessions/import-tmux", handle_api)
+
+    page.goto(BASE_URL)
+    page.wait_for_load_state("networkidle")
+
+    page.click("#session-btn")
+    page.click("#attach-tmux-btn")
+    page.wait_for_selector("#tmux-picker-modal", state="visible")
+    page.on("dialog", lambda dialog: dialog.accept("Ops Review"))
+    page.click("button[data-action='import-tmux-session'][data-tmux-session-name='ops']")
+
+    page.wait_for_function(
+        "() => document.getElementById('session-compact')?.textContent?.includes('Ops Review')"
+    )
+    assert sessions[0]["name"] == "Ops Review"
+
+    context.close()
+
+
+def test_session_picker_prompts_for_name_when_creating_blank_session(browser):
+    """Creating a session with a blank field should prompt for the TeleCLI session name."""
+    context = browser.new_context()
+    page = context.new_page()
+    page.add_init_script(
+        """
+        (() => {
+            class FakeWebSocket {
+                constructor() {
+                    this.readyState = FakeWebSocket.CONNECTING;
+                    setTimeout(() => {
+                        this.readyState = FakeWebSocket.OPEN;
+                        if (this.onopen) {
+                            this.onopen();
+                        }
+                    }, 0);
+                }
+
+                send() {}
+
+                close() {
+                    this.readyState = FakeWebSocket.CLOSED;
+                    if (this.onclose) {
+                        this.onclose({ code: 1000 });
+                    }
+                }
+            }
+
+            FakeWebSocket.CONNECTING = 0;
+            FakeWebSocket.OPEN = 1;
+            FakeWebSocket.CLOSING = 2;
+            FakeWebSocket.CLOSED = 3;
+
+            window.WebSocket = FakeWebSocket;
+        })();
+        """
+    )
+
+    sessions = []
+    session_counter = 0
+
+    def make_session_payload(session_id, name, backend="telecli", tmux_session_name=None):
+        shell = "/bin/bash" if backend == "telecli" else f"tmux:{tmux_session_name}"
+        return {
+            "id": session_id,
+            "name": name,
+            "backend": backend,
+            "created_at": "2026-03-18T12:00:00+00:00",
+            "shell": shell,
+            "is_active": True,
+            "available": True,
+            "tmux_session_name": tmux_session_name,
+        }
+
+    def handle_api(route):
+        nonlocal session_counter
+        request = route.request
+        path = request.url.split(BASE_URL, 1)[-1]
+
+        if path == "/api/sessions" and request.method == "GET":
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps({"sessions": sessions}),
+            )
+            return
+
+        if path == "/api/sessions" and request.method == "POST":
+            payload = json.loads(request.post_data or "{}")
+            session_counter += 1
+            session = make_session_payload(
+                f"web-created-{session_counter}",
+                payload.get("name") or f"web-created-{session_counter}",
+            )
+            sessions.append(session)
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps({"session": session}),
+            )
+            return
+
+        route.fallback()
+
+    page.route("**/api/sessions", handle_api)
+
+    page.goto(BASE_URL)
+    page.wait_for_load_state("networkidle")
+
+    page.click("#session-btn")
+    page.on("dialog", lambda dialog: dialog.accept("Inbox Shell"))
+    page.click("#create-session-btn")
+
+    page.wait_for_function(
+        "() => document.getElementById('session-compact')?.textContent?.includes('Inbox Shell')"
+    )
+    assert sessions[0]["name"] == "Inbox Shell"
 
     context.close()
 
