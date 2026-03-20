@@ -218,6 +218,26 @@ def test_session_manager_reports_agent_mode_capabilities_for_tmux_record(tmp_pat
     }
 
 
+def test_session_manager_caches_tmux_capability_checks(tmp_path, monkeypatch):
+    """Repeated capability checks should avoid re-probing tmux within the cache window."""
+    manager = SessionManager(registry_path=tmp_path / "tmux-session-registry.json")
+    manager._ensure_record(  # noqa: SLF001 - exercising manager state directly
+        "tmux-session-1",
+        backend="tmux",
+        name="Ops Shell",
+        tmux_session_name="ops-shell",
+    )
+    calls = []
+    monkeypatch.setattr("src.session_manager.tmux_session_exists", lambda name: calls.append(name) or True)
+
+    first = manager.get_session_mode_capabilities("tmux-session-1")
+    second = manager.get_session_mode_capabilities("tmux-session-1")
+
+    assert first["supports_agent_mode"] is True
+    assert second["supports_agent_mode"] is True
+    assert calls == ["ops-shell"]
+
+
 def test_session_manager_reports_no_agent_mode_support_for_unavailable_tmux_session(tmp_path, monkeypatch):
     """tmux-backed records should stop advertising agent mode when the backing tmux session is gone."""
     manager = SessionManager(registry_path=tmp_path / "tmux-session-registry.json")

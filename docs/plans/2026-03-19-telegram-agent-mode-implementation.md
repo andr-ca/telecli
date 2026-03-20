@@ -1,7 +1,5 @@
 # Telegram Agent Mode Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
-
 **Goal:** Build a hybrid Telegram experience where normal shell sessions keep the current line-oriented behavior, while tmux-backed interactive sessions can opt into `agent mode` with auto-suggest for coding-agent TUIs.
 
 **Architecture:** Keep Telegram policy in `src/telegram_bot.py`, add a tmux capability layer in `src/session_manager.py`, and centralize tmux inspection/control helpers in `src/tmux.py`. The implementation should stay conservative: agent mode only works on tmux-backed sessions in v1, and auto-suggest is opt-in with per-session suppression.
@@ -10,10 +8,10 @@
 
 ## Prerequisites
 
-1. Work from `/home/andrey/projects/telecli/.worktrees/telegram-tui-usability`.
+1. Work from a clean branch or worktree for the Telegram TUI usability changes.
 2. Read the approved design in `docs/plans/2026-03-19-telegram-agent-mode-design.md`.
-3. Use @superpowers:test-driven-development for every code task.
-4. Use @superpowers:verification-before-completion before every status claim or commit.
+3. Add or update tests alongside each behavior change.
+4. Run focused verification before committing.
 
 ### Task 1: Add tmux inspection and key helpers
 

@@ -36,6 +36,20 @@ async def test_terminal_session_send_command():
         await session.stop()
 
 
+@pytest.mark.asyncio
+async def test_terminal_session_send_command_uses_running_loop(monkeypatch):
+    """send_command should rely on the active loop inside async code."""
+    session = TerminalSession("test-session")
+    await session.start()
+    monkeypatch.setattr("src.terminal.asyncio.get_event_loop", lambda: (_ for _ in ()).throw(AssertionError("deprecated loop lookup")))  # noqa: E731
+
+    try:
+        output = await session.send_command("echo hello")
+        assert "hello" in output
+    finally:
+        await session.stop()
+
+
 # TODO: Add tests for:
 # - test_terminal_session_is_responsive()
 # - test_terminal_session_context_manager()

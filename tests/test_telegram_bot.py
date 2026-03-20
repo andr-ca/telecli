@@ -9,7 +9,8 @@ from src import telegram_bot
 
 
 class FakeChat:
-    def __init__(self):
+    def __init__(self, chat_id: int = 0):
+        self.id = chat_id
         self.actions = []
 
     async def send_action(self, action: str):
@@ -17,9 +18,10 @@ class FakeChat:
 
 
 class FakeMessage:
-    def __init__(self, text: str):
+    def __init__(self, text: str, chat_id: int = 0):
         self.text = text
-        self.chat = FakeChat()
+        self.chat = FakeChat(chat_id)
+        self.chat_id = chat_id
         self.replies = []
         self.edits = []
 
@@ -31,9 +33,11 @@ class FakeMessage:
 
 
 class FakeUpdate:
-    def __init__(self, user_id: int, text: str):
+    def __init__(self, user_id: int, text: str, chat_id: int | None = None):
+        resolved_chat_id = user_id if chat_id is None else chat_id
         self.effective_user = SimpleNamespace(id=user_id)
-        self.message = FakeMessage(text)
+        self.effective_chat = SimpleNamespace(id=resolved_chat_id)
+        self.message = FakeMessage(text, chat_id=resolved_chat_id)
         self.callback_query = None
 
 
@@ -53,9 +57,19 @@ class FakeCallbackQuery:
 
 
 class FakeCallbackUpdate:
-    def __init__(self, user_id: int, data: str, message: FakeMessage | None = None):
+    def __init__(self, user_id: int, data: str, message: FakeMessage | None = None, chat_id: int | None = None):
+        resolved_chat_id = chat_id
+        if resolved_chat_id is None and message is not None:
+            resolved_chat_id = message.chat.id
+        if resolved_chat_id is None:
+            resolved_chat_id = user_id
         self.effective_user = SimpleNamespace(id=user_id)
-        self.callback_query = FakeCallbackQuery(user_id, data, message=message)
+        self.effective_chat = SimpleNamespace(id=resolved_chat_id)
+        self.callback_query = FakeCallbackQuery(
+            user_id,
+            data,
+            message=message or FakeMessage("", chat_id=resolved_chat_id),
+        )
         self.message = None
 
 
@@ -898,6 +912,46 @@ async def test_watch_on_enables_screen_monitoring_for_tmux_session(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_watch_on_stores_group_chat_for_push_updates(monkeypatch):
+    """Enabling watch from a group should remember the group chat ID."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+    await telegram_bot.attachtmux_command(
+        FakeUpdate(777, "/attachtmux ops-shell Ops Shell"),
+        SimpleNamespace(args=["ops-shell", "Ops", "Shell"]),
+    )
+
+    await telegram_bot.watch_command(
+        FakeUpdate(777, "/watch on", chat_id=-100123),
+        SimpleNamespace(args=["on"]),
+    )
+
+    watch_state = telegram_bot._get_screen_watch_state(777, "tmux-1")
+    assert watch_state.chat_id == -100123
+
+
+@pytest.mark.asyncio
+async def test_watch_picker_callback_stores_group_chat_for_push_updates(monkeypatch):
+    """Enabling watch from the picker should remember the callback message chat ID."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+    await telegram_bot.attachtmux_command(
+        FakeUpdate(777, "/attachtmux ops-shell Ops Shell"),
+        SimpleNamespace(args=["ops-shell", "Ops", "Shell"]),
+    )
+
+    update = FakeCallbackUpdate(
+        777,
+        "command:watch:tmux-1:on",
+        message=FakeMessage("Pick action", chat_id=-100456),
+    )
+    await telegram_bot.handle_command_picker(update, SimpleNamespace())
+
+    watch_state = telegram_bot._get_screen_watch_state(777, "tmux-1")
+    assert watch_state.chat_id == -100456
+
+
+@pytest.mark.asyncio
 async def test_screen_watch_tick_pushes_stable_changed_screen_once(monkeypatch):
     """Enabled watches should push a screen only after the changed pane stays stable."""
     manager = FakeSessionManager()
@@ -920,6 +974,54 @@ async def test_screen_watch_tick_pushes_stable_changed_screen_once(monkeypatch):
 
     await telegram_bot._run_screen_watch_tick(bot)
     assert len(bot.send_message_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_screen_watch_tick_uses_stored_group_chat_id(monkeypatch):
+    """Screen watch pushes should target the stored chat ID instead of the Telegram user ID."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+    await telegram_bot.attachtmux_command(
+        FakeUpdate(777, "/attachtmux ops-shell Ops Shell"),
+        SimpleNamespace(args=["ops-shell", "Ops", "Shell"]),
+    )
+    await telegram_bot.watch_command(
+        FakeUpdate(777, "/watch on", chat_id=-100789),
+        SimpleNamespace(args=["on"]),
+    )
+
+    bot = FakeBot()
+    manager.screens["tmux-1"] = "Change incoming\n> "
+    await telegram_bot._run_screen_watch_tick(bot)
+    await telegram_bot._run_screen_watch_tick(bot)
+
+    assert bot.send_message_calls == [
+        (-100789, "<pre>Change incoming\n&gt; </pre>", {"parse_mode": "HTML"})
+    ]
+
+
+@pytest.mark.asyncio
+async def test_reply_with_current_screen_offloads_capture_to_worker_thread(monkeypatch):
+    """Current-screen replies should offload tmux capture work away from the event loop."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+    await telegram_bot.attachtmux_command(
+        FakeUpdate(777, "/attachtmux ops-shell Ops Shell"),
+        SimpleNamespace(args=["ops-shell", "Ops", "Shell"]),
+    )
+
+    calls = []
+
+    async def fake_to_thread(func, *args, **kwargs):
+        calls.append((func.__name__, args, kwargs))
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(telegram_bot.asyncio, "to_thread", fake_to_thread)
+    update = FakeUpdate(777, "/screen")
+    await telegram_bot._reply_with_current_screen(update, "tmux-1", delay_seconds=0)
+
+    assert calls == [("capture_session_screen", ("tmux-1",), {})]
+    assert update.message.replies == [("<pre>Claude is waiting\n&gt; </pre>", {"parse_mode": "HTML"})]
 
 
 @pytest.mark.asyncio

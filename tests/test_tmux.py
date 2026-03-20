@@ -181,3 +181,24 @@ def test_run_tmux_command_raises_on_non_zero_exit(monkeypatch):
 
     with pytest.raises(ValueError, match="boom"):
         tmux.capture_tmux_pane("dev-shell")
+
+
+def test_run_tmux_command_logs_failure_context(monkeypatch, caplog):
+    monkeypatch.setattr(
+        tmux.shutil,
+        "which",
+        lambda name: "/usr/bin/tmux",
+    )
+    monkeypatch.setattr(
+        tmux.subprocess,
+        "run",
+        lambda *args, **kwargs: _completed(stdout="stdout text", stderr="stderr text", returncode=23),
+    )
+
+    with caplog.at_level("ERROR"):
+        with pytest.raises(ValueError, match="stderr text"):
+            tmux.capture_tmux_pane("dev-shell")
+
+    assert "capture-pane" in caplog.text
+    assert "returncode=23" in caplog.text
+    assert "stderr text" in caplog.text

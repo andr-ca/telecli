@@ -42,6 +42,13 @@ def _run_tmux_command(args: list[str]) -> subprocess.CompletedProcess:
         check=False,
     )
     if result.returncode != 0:
+        logger.error(
+            "tmux command failed args=%s returncode=%s stdout=%r stderr=%r",
+            args,
+            result.returncode,
+            result.stdout.strip(),
+            result.stderr.strip(),
+        )
         error_text = result.stderr.strip() or result.stdout.strip() or "tmux command failed"
         raise ValueError(error_text)
     return result

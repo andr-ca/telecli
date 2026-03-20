@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import logging
 import secrets
+import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,6 +29,7 @@ from src.tmux import (
 )
 
 logger = logging.getLogger(__name__)
+_TMUX_AVAILABILITY_CACHE_TTL_SECONDS = 1.0
 
 
 def _utc_now_iso() -> str:
@@ -64,6 +66,7 @@ class SessionManager:
         self.ai_proxies: dict[str, AIProxy] = {}
         self.claude_code_auto_controllers: dict[str, ClaudeCodeAutoContinue] = {}
         self.monitor_callback = None
+        self._tmux_availability_cache: dict[str, tuple[float, bool]] = {}
         self._load_persisted_tmux_records()
 
     @property
@@ -157,8 +160,18 @@ class SessionManager:
         if runtime and runtime.is_active:
             return True
         if record.backend == "tmux" and record.tmux_session_name:
-            return tmux_session_exists(record.tmux_session_name)
+            return self._tmux_session_available(record.tmux_session_name)
         return False
+
+    def _tmux_session_available(self, session_name: str) -> bool:
+        cached = self._tmux_availability_cache.get(session_name)
+        now = time.monotonic()
+        if cached and now - cached[0] < _TMUX_AVAILABILITY_CACHE_TTL_SECONDS:
+            return cached[1]
+
+        available = tmux_session_exists(session_name)
+        self._tmux_availability_cache[session_name] = (now, available)
+        return available
 
     def get_session_summary(self, session_id: str) -> dict:
         record = self._resolve_record(session_id)
@@ -187,7 +200,11 @@ class SessionManager:
     def get_session_mode_capabilities(self, session_id: str) -> dict:
         """Describe whether the session supports Telegram agent mode."""
         record = self._resolve_record(session_id)
-        tmux_available = bool(record.backend == "tmux" and record.tmux_session_name and tmux_session_exists(record.tmux_session_name))
+        tmux_available = bool(
+            record.backend == "tmux"
+            and record.tmux_session_name
+            and self._tmux_session_available(record.tmux_session_name)
+        )
         return {
             "backend": record.backend,
             "supports_agent_mode": tmux_available,

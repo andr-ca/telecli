@@ -192,10 +192,15 @@ class TerminalSession:
         history_start = len(self._history)
         await self.send_input(f"{command}; printf '\\n{marker}\\n'")
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         deadline = loop.time() + timeout
+        history_index = history_start
+        collected_chunks: list[str] = []
         while loop.time() < deadline:
-            output = ''.join(self._history[history_start:])
+            if history_index < len(self._history):
+                collected_chunks.extend(self._history[history_index:])
+                history_index = len(self._history)
+            output = ''.join(collected_chunks)
             if marker in output:
                 return output.split(marker, 1)[0]
             await asyncio.sleep(0.01)

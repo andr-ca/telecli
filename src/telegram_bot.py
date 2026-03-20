@@ -192,6 +192,7 @@ class TelegramUserSessions:
 @dataclass
 class ScreenWatchState:
     enabled: bool = False
+    chat_id: int | None = None
     last_delivered_screen: str | None = None
     pending_screen: str | None = None
     pending_count: int = 0
@@ -520,6 +521,10 @@ async def _edit_query_with_screen(query, screen_text: str) -> None:
         await query.message.reply_text(f"<pre>{html.escape(chunk)}</pre>", parse_mode="HTML")
 
 
+async def _call_blocking_manager_method(method, *args, **kwargs):
+    return await asyncio.to_thread(method, *args, **kwargs)
+
+
 async def _reply_with_current_screen(
     update: Update,
     session_id: str,
@@ -538,7 +543,7 @@ async def _reply_with_current_screen(
         await asyncio.sleep(delay_seconds)
 
     try:
-        screen = manager.capture_session_screen(session_id)
+        screen = await _call_blocking_manager_method(manager.capture_session_screen, session_id)
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {str(e)}")
         return
@@ -565,7 +570,7 @@ async def _edit_query_with_current_screen(
         await asyncio.sleep(delay_seconds)
 
     try:
-        screen = manager.capture_session_screen(session_id)
+        screen = await _call_blocking_manager_method(manager.capture_session_screen, session_id)
     except Exception as e:
         await query.edit_message_text(f"❌ Error: {str(e)}")
         return
@@ -592,7 +597,7 @@ def _get_watch_status_text(user_id: int, session_id: str) -> str:
     return f"Screen watch: {'on' if watch_state.enabled else 'off'} for {session_id}"
 
 
-def _run_watch_action(user_id: int, session_id: str, action: str) -> str:
+async def _run_watch_action(user_id: int, session_id: str, action: str, *, chat_id: int | None = None) -> str:
     manager = _require_session_manager()
     capabilities = manager.get_session_mode_capabilities(session_id)
     if not capabilities.get("supports_agent_mode"):
@@ -603,8 +608,9 @@ def _run_watch_action(user_id: int, session_id: str, action: str) -> str:
         return _get_watch_status_text(user_id, session_id)
 
     if action == "on":
-        screen = manager.capture_session_screen(session_id)
+        screen = await _call_blocking_manager_method(manager.capture_session_screen, session_id)
         watch_state.enabled = True
+        watch_state.chat_id = chat_id
         _mark_screen_delivered(user_id, session_id, screen)
         return f"Screen watch enabled for {session_id}"
 
@@ -629,7 +635,7 @@ async def _run_screen_watch_tick(bot) -> None:
                 continue
 
             try:
-                screen = manager.capture_session_screen(session_id)
+                screen = await _call_blocking_manager_method(manager.capture_session_screen, session_id)
             except Exception as e:
                 logger.debug("Skipping screen watch tick for %s/%s: %s", user_id, session_id, e)
                 continue
@@ -649,7 +655,8 @@ async def _run_screen_watch_tick(bot) -> None:
             if watch_state.pending_count < SCREEN_WATCH_STABLE_POLLS:
                 continue
 
-            await _send_screen_via_bot(bot, user_id, clean)
+            target_chat_id = watch_state.chat_id if watch_state.chat_id is not None else user_id
+            await _send_screen_via_bot(bot, target_chat_id, clean)
             _mark_screen_delivered(user_id, session_id, clean)
 
 
@@ -1020,7 +1027,11 @@ async def snapshot_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     session_id = _get_current_session_id(user_id)
     try:
-        snapshot = _require_session_manager().capture_session_snapshot(session_id, lines=80)
+        snapshot = await _call_blocking_manager_method(
+            _require_session_manager().capture_session_snapshot,
+            session_id,
+            lines=80,
+        )
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {str(e)}")
         return
@@ -1037,7 +1048,7 @@ async def screen_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     session_id = _get_current_session_id(user_id)
     try:
-        screen = _require_session_manager().capture_session_screen(session_id)
+        screen = await _call_blocking_manager_method(_require_session_manager().capture_session_screen, session_id)
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {str(e)}")
         return
@@ -1063,7 +1074,11 @@ async def tail_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             return
 
     try:
-        tail_output = _require_session_manager().tail_session_output(session_id, lines=lines)
+        tail_output = await _call_blocking_manager_method(
+            _require_session_manager().tail_session_output,
+            session_id,
+            lines=lines,
+        )
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {str(e)}")
         return
@@ -1092,7 +1107,12 @@ async def watch_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
 
     try:
-        response = _run_watch_action(user_id, session_id, context.args[0].lower())
+        response = await _run_watch_action(
+            user_id,
+            session_id,
+            context.args[0].lower(),
+            chat_id=update.effective_chat.id,
+        )
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {str(e)}")
         return
@@ -1486,7 +1506,8 @@ async def handle_command_picker(update: Update, context: ContextTypes.DEFAULT_TY
 
     if command_name == "watch":
         try:
-            response = _run_watch_action(user_id, session_id, action)
+            callback_chat_id = query.message.chat.id if query.message else query.from_user.id
+            response = await _run_watch_action(user_id, session_id, action, chat_id=callback_chat_id)
         except Exception as e:
             await query.edit_message_text(f"❌ Error: {str(e)}")
             return
