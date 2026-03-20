@@ -4,6 +4,8 @@ from pathlib import Path
 import os
 import subprocess
 
+import pytest
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -225,6 +227,80 @@ def test_install_linux_script_can_seed_env_from_answers(tmp_path):
     assert "AI_PROXY_PROVIDER=claude-cli" in env_text
 
 
+@pytest.mark.parametrize(
+    ("script_name", "launcher_name"),
+    [
+        ("install-linux.sh", "telecli"),
+        ("install-wsl.sh", "telecli-wsl"),
+    ],
+)
+def test_installers_keep_env_private_and_do_not_echo_generated_auth_token(tmp_path, script_name, launcher_name):
+    """Generated secrets should stay in the env file, and launcher usage should render the real command name."""
+    script = REPO_ROOT / "scripts" / script_name
+    source_repo = tmp_path / f"source-repo-{launcher_name}"
+    _init_fake_repo(source_repo)
+
+    fake_bin = tmp_path / f"bin-{launcher_name}"
+    fake_bin.mkdir()
+    _make_fake_python3(fake_bin)
+
+    prefix = tmp_path / f"install-root-{launcher_name}"
+    bin_dir = tmp_path / f"launcher-bin-{launcher_name}"
+    state_dir = tmp_path / f"state-{launcher_name}"
+
+    completed = subprocess.run(
+        [
+            "/bin/bash",
+            str(script),
+            "--repo-url",
+            str(source_repo),
+            "--ref",
+            "main",
+            "--prefix",
+            str(prefix),
+            "--bin-dir",
+            str(bin_dir),
+            "--state-dir",
+            str(state_dir),
+            "--skip-system-packages",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={
+            **os.environ,
+            "PATH": f"{fake_bin}:{os.environ['PATH']}",
+            "TELECLI_AUTO_CONFIG": "1",
+            "TELECLI_INSTALL_AUTH_REQUIRED": "true",
+        },
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+    env_file = prefix / ".env"
+    env_text = env_file.read_text(encoding="utf-8")
+    auth_token_line = next(line for line in env_text.splitlines() if line.startswith("AUTH_TOKEN="))
+    auth_token = auth_token_line.split("=", 1)[1]
+
+    assert auth_token
+    assert auth_token != "your_auth_token_here"
+    assert (env_file.stat().st_mode & 0o777) == 0o600
+    assert auth_token not in completed.stdout
+    assert auth_token not in completed.stderr
+
+    launcher = bin_dir / launcher_name
+    invalid = subprocess.run(
+        [str(launcher), "bogus"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert invalid.returncode == 1
+    assert f"Usage: {launcher_name} {{start|stop|restart|status|logs|url}}" in invalid.stderr
+    assert "${LAUNCHER_NAME}" not in invalid.stderr
+
+
 def test_install_linux_script_can_enable_startup_service(tmp_path):
     """Opting into startup should create and enable a user systemd service."""
     script = REPO_ROOT / "scripts" / "install-linux.sh"
@@ -289,10 +365,14 @@ def test_windows_installer_bootstraps_wsl_install_script():
     installer = REPO_ROOT / "install-windows.ps1"
     text = installer.read_text(encoding="utf-8")
 
+    assert "[string]$Prefix = '~/.local/share/telecli'" in text
     assert "wsl.exe" in text
     assert "Invoke-WebRequest" in text
     assert "install-wsl.sh" in text
     assert "telecli-wsl start" in text
+    assert "--prefix" in text
+    assert "$HOME/.local/share/telecli" not in text
+
 
 
 def test_release_workflow_publishes_wsl_assets():

@@ -2,7 +2,7 @@ param(
     [string]$Distro = "",
     [string]$RepoUrl = "https://github.com/malandr/telecli.git",
     [string]$Ref = "main",
-    [string]$Prefix = '$HOME/.local/share/telecli',
+    [string]$Prefix = '~/.local/share/telecli',
     [switch]$SkipSystemPackages
 )
 

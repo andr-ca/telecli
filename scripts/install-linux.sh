@@ -369,13 +369,18 @@ configure_env_file() {
     set_env_value AI_PROXY_PROVIDER "${ai_proxy_provider}"
 
     if [ -n "${generated_auth_token}" ]; then
-        log "Generated AUTH_TOKEN: ${generated_auth_token}"
+        log "Generated AUTH_TOKEN and stored it in ${ENV_FILE}. Keep this token secret and do not share it."
     fi
 }
 
 ensure_env_file() {
     if [ -f "${ENV_FILE}" ]; then
         log "Keeping existing ${ENV_FILE}"
+        if is_dry_run; then
+            log "[dry-run] chmod 600 ${ENV_FILE}"
+            return 0
+        fi
+        chmod 600 "${ENV_FILE}"
         return 0
     fi
 
@@ -384,11 +389,13 @@ ensure_env_file() {
         if auto_config; then
             log "[dry-run] apply TELECLI_INSTALL_* overrides to ${ENV_FILE}"
         fi
+        log "[dry-run] chmod 600 ${ENV_FILE}"
         return 0
     fi
 
     cp "${PREFIX}/.env.sample" "${ENV_FILE}"
     configure_env_file
+    chmod 600 "${ENV_FILE}"
 }
 
 install_startup_service() {
