@@ -1390,6 +1390,36 @@ async def test_handle_message_suggests_agent_mode_once_for_interactive_tmux(monk
 
 
 @pytest.mark.asyncio
+async def test_handle_message_offloads_agent_mode_recommendation_lookup(monkeypatch):
+    """Interactive suggestion lookup should not run inline on the Telegram event loop."""
+    manager = FakeSessionManager()
+    manager.agent_recommendations["tmux-1"] = {
+        "supports_agent_mode": True,
+        "should_suggest_agent_mode": True,
+        "reason": "codex",
+        "signature": "sig-1",
+    }
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+    await telegram_bot.attachtmux_command(
+        FakeUpdate(777, "/attachtmux ops-shell Ops Shell"),
+        SimpleNamespace(args=["ops-shell", "Ops", "Shell"]),
+    )
+
+    calls = []
+
+    async def fake_to_thread(func, *args, **kwargs):
+        calls.append((func.__name__, args, kwargs))
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(telegram_bot.asyncio, "to_thread", fake_to_thread)
+    update = FakeUpdate(777, "pwd")
+
+    await telegram_bot.handle_message(update, SimpleNamespace())
+
+    assert calls == [("get_agent_mode_recommendation", ("tmux-1",), {})]
+
+
+@pytest.mark.asyncio
 async def test_agent_mode_picker_switches_session_to_agent(monkeypatch):
     """The inline switch action should flip the active session into agent mode."""
     manager = FakeSessionManager()

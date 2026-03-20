@@ -1307,12 +1307,13 @@ def _run_mode_action(user_id: int, session_id: str, action: str) -> str:
     return f"Mode set to {action} for {session_id}"
 
 
-def _get_agent_mode_suggestion(user_id: int, session_id: str) -> dict | None:
+async def _get_agent_mode_suggestion(user_id: int, session_id: str) -> dict | None:
     state = _get_user_sessions(user_id)
     if state.suggestion_dismissals.get(session_id):
         return None
 
-    recommendation = _require_session_manager().get_agent_mode_recommendation(session_id)
+    manager = _require_session_manager()
+    recommendation = await _call_blocking_manager_method(manager.get_agent_mode_recommendation, session_id)
     if not recommendation.get("supports_agent_mode") or not recommendation.get("should_suggest_agent_mode"):
         return None
 
@@ -1649,7 +1650,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         _get_user_sessions(user_id).last_outputs[session_id] = output
         await _reply_in_chunks(update, output)
 
-        suggestion = _get_agent_mode_suggestion(user_id, session_id)
+        suggestion = await _get_agent_mode_suggestion(user_id, session_id)
         if suggestion:
             reason = suggestion.get("reason") or "interactive"
             await update.message.reply_text(
