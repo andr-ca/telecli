@@ -1027,6 +1027,107 @@ def test_tmux_picker_prompts_for_session_name_on_attach(browser):
     context.close()
 
 
+def test_session_picker_prompts_for_name_when_creating_blank_session(browser):
+    """Creating a session with a blank field should prompt for the TeleCLI session name."""
+    context = browser.new_context()
+    page = context.new_page()
+    page.add_init_script(
+        """
+        (() => {
+            class FakeWebSocket {
+                constructor() {
+                    this.readyState = FakeWebSocket.CONNECTING;
+                    setTimeout(() => {
+                        this.readyState = FakeWebSocket.OPEN;
+                        if (this.onopen) {
+                            this.onopen();
+                        }
+                    }, 0);
+                }
+
+                send() {}
+
+                close() {
+                    this.readyState = FakeWebSocket.CLOSED;
+                    if (this.onclose) {
+                        this.onclose({ code: 1000 });
+                    }
+                }
+            }
+
+            FakeWebSocket.CONNECTING = 0;
+            FakeWebSocket.OPEN = 1;
+            FakeWebSocket.CLOSING = 2;
+            FakeWebSocket.CLOSED = 3;
+
+            window.WebSocket = FakeWebSocket;
+        })();
+        """
+    )
+
+    sessions = []
+    session_counter = 0
+
+    def make_session_payload(session_id, name, backend="telecli", tmux_session_name=None):
+        shell = "/bin/bash" if backend == "telecli" else f"tmux:{tmux_session_name}"
+        return {
+            "id": session_id,
+            "name": name,
+            "backend": backend,
+            "created_at": "2026-03-18T12:00:00+00:00",
+            "shell": shell,
+            "is_active": True,
+            "available": True,
+            "tmux_session_name": tmux_session_name,
+        }
+
+    def handle_api(route):
+        nonlocal session_counter
+        request = route.request
+        path = request.url.split(BASE_URL, 1)[-1]
+
+        if path == "/api/sessions" and request.method == "GET":
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps({"sessions": sessions}),
+            )
+            return
+
+        if path == "/api/sessions" and request.method == "POST":
+            payload = json.loads(request.post_data or "{}")
+            session_counter += 1
+            session = make_session_payload(
+                f"web-created-{session_counter}",
+                payload.get("name") or f"web-created-{session_counter}",
+            )
+            sessions.append(session)
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps({"session": session}),
+            )
+            return
+
+        route.fallback()
+
+    page.route("**/api/sessions", handle_api)
+
+    page.goto(BASE_URL)
+    page.wait_for_load_state("networkidle")
+
+    page.click("#session-btn")
+    page.on("dialog", lambda dialog: dialog.accept("Inbox Shell"))
+    page.click("#create-session-btn")
+
+    page.wait_for_function(
+        "() => document.getElementById('session-compact')?.textContent?.includes('Inbox Shell')"
+    )
+    assert sessions[0]["name"] == "Inbox Shell"
+
+    context.close()
+
+
 def test_tmux_picker_can_create_and_detach_tmux_sessions(browser):
     """The tmux picker should create a tmux session and detach it without forgetting the import."""
     context = browser.new_context()
