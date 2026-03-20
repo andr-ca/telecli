@@ -11,7 +11,7 @@ def _completed(stdout: str = "", stderr: str = "", returncode: int = 0):
     return SimpleNamespace(stdout=stdout, stderr=stderr, returncode=returncode)
 
 
-def test_get_tmux_pane_state_parses_foreground_command(monkeypatch):
+def test_get_tmux_pane_state_parses_active_pane_and_paths(monkeypatch):
     monkeypatch.setattr(
         tmux.shutil,
         "which",
@@ -20,13 +20,17 @@ def test_get_tmux_pane_state_parses_foreground_command(monkeypatch):
     monkeypatch.setattr(
         tmux.subprocess,
         "run",
-        lambda *args, **kwargs: _completed("%1\tcodex\t1\n"),
+        lambda *args, **kwargs: _completed(
+            "%1\t1\tcodex\t1\t/workspace/ops\n%2\t0\tbash\t0\t/workspace/shared\n"
+        ),
     )
 
     state = tmux.get_tmux_pane_state("dev-shell")
 
     assert state["pane_id"] == "%1"
     assert state["current_command"] == "codex"
+    assert state["current_path"] == "/workspace/ops"
+    assert state["pane_paths"] == ["/workspace/ops", "/workspace/shared"]
     assert state["alternate_screen"] is True
     assert state["interactive"] is True
 

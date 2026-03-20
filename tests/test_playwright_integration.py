@@ -716,6 +716,9 @@ def test_session_picker_creates_named_sessions_and_imports_tmux_entries(browser)
             "imported": False,
             "imported_session_id": None,
             "imported_name": None,
+            "current_command": "codex",
+            "current_path": "/workspace/ops",
+            "pane_paths": ["/workspace/ops", "/workspace/shared"],
         },
         {
             "name": "build",
@@ -724,6 +727,9 @@ def test_session_picker_creates_named_sessions_and_imports_tmux_entries(browser)
             "imported": False,
             "imported_session_id": None,
             "imported_name": None,
+            "current_command": "bash",
+            "current_path": "/workspace/build",
+            "pane_paths": ["/workspace/build"],
         },
     ]
     session_counter = 0
@@ -871,9 +877,13 @@ def test_session_picker_creates_named_sessions_and_imports_tmux_entries(browser)
     page.wait_for_function(
         """() => {
             const text = document.getElementById('tmux-sessions-list')?.textContent?.toLowerCase() || '';
-            return text.includes('ops') && text.includes('build');
+            return text.includes('ops') && text.includes('build') && text.includes('/workspace/ops');
         }"""
     )
+    tmux_picker_text = page.locator("#tmux-sessions-list").text_content()
+    assert "/workspace/ops" in tmux_picker_text
+    assert "/workspace/shared" in tmux_picker_text
+    assert "/workspace/build" in tmux_picker_text
 
     page.click("button[data-action='import-tmux-session'][data-tmux-session-name='ops']")
     page.wait_for_function(

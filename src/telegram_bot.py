@@ -307,6 +307,17 @@ def _render_machine_tmux_session_line(session: dict) -> str:
         if imported_session_id:
             imported_label = f"{imported_label} [{imported_session_id}]"
         details.append(f"telecli={imported_label}")
+    pane_paths = session.get("pane_paths") or []
+    if pane_paths:
+        preview_paths = pane_paths[:2]
+        path_preview = " | ".join(preview_paths)
+        if len(pane_paths) > len(preview_paths):
+            path_preview += f" (+{len(pane_paths) - len(preview_paths)} more)"
+        details.append(f"paths={path_preview}")
+    elif session.get("current_path"):
+        details.append(f"cwd={session['current_path']}")
+    if session.get("current_command"):
+        details.append(f"current={session['current_command']}")
     return f"- {session['name']} ({', '.join(details)})"
 
 

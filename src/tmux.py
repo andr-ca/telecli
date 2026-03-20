@@ -10,7 +10,7 @@ import subprocess
 logger = logging.getLogger(__name__)
 
 _TMUX_FORMAT = "#{session_name}\t#{session_windows}\t#{session_attached}"
-_PANE_FORMAT = "#{pane_id}\t#{pane_current_command}\t#{alternate_on}"
+_PANE_FORMAT = "#{pane_id}\t#{pane_active}\t#{pane_current_command}\t#{alternate_on}\t#{pane_current_path}"
 _INTERACTIVE_COMMANDS = {"claude", "codex", "vim", "less", "man", "htop"}
 _SPECIAL_KEYS = {
     "enter": "Enter",
@@ -99,14 +99,48 @@ def tmux_session_exists(session_name: str) -> bool:
 
 
 def get_tmux_pane_state(session_name: str) -> dict:
-    """Return lightweight metadata for the active tmux pane."""
-    result = _run_tmux_command(["display-message", "-pt", session_name, _PANE_FORMAT])
-    pane_id, current_command, alternate_on = (result.stdout.strip().split("\t") + ["", "", "0"])[:3]
-    alternate_screen = alternate_on == "1"
+    """Return lightweight metadata for the active tmux pane plus visible pane paths."""
+    result = _run_tmux_command(["list-panes", "-t", session_name, "-F", _PANE_FORMAT])
+    panes = []
+    pane_paths = []
+
+    for raw_line in result.stdout.splitlines():
+        if not raw_line.strip():
+            continue
+
+        pane_id, active, current_command, alternate_on, current_path = (raw_line.split("\t") + ["", "0", "", "0", ""])[:5]
+        pane = {
+            "pane_id": pane_id,
+            "active": active == "1",
+            "current_command": current_command,
+            "current_path": current_path,
+            "alternate_screen": alternate_on == "1",
+        }
+        panes.append(pane)
+        if current_path and current_path not in pane_paths:
+            pane_paths.append(current_path)
+
+    if not panes:
+        return {
+            "pane_id": "",
+            "current_command": "",
+            "current_path": "",
+            "pane_paths": [],
+            "alternate_screen": False,
+            "interactive": False,
+        }
+
+    active_pane = next((pane for pane in panes if pane["active"]), panes[0])
+    alternate_screen = active_pane["alternate_screen"]
+    current_command = active_pane["current_command"]
+    current_path = active_pane["current_path"]
     interactive = alternate_screen or current_command.lower() in _INTERACTIVE_COMMANDS
+
     return {
-        "pane_id": pane_id,
+        "pane_id": active_pane["pane_id"],
         "current_command": current_command,
+        "current_path": current_path,
+        "pane_paths": pane_paths,
         "alternate_screen": alternate_screen,
         "interactive": interactive,
     }

@@ -1186,8 +1186,30 @@
         }
 
         function renderTmuxSessionRow(session) {
+            const importedSessionId = session.imported_session_id
+                ? ` [${escapeHtml(session.imported_session_id)}]`
+                : '';
             const importedLabel = session.imported && session.imported_name
-                ? `<div class="session-item-note">TeleCLI name: ${escapeHtml(session.imported_name)}</div>`
+                ? `<div class="session-item-note">TeleCLI: ${escapeHtml(session.imported_name)}${importedSessionId}</div>`
+                : '';
+            const panePaths = Array.isArray(session.pane_paths) && session.pane_paths.length > 0
+                ? session.pane_paths
+                : (session.current_path ? [session.current_path] : []);
+            const pathPreview = panePaths.slice(0, 3).map((path) => escapeHtml(path)).join(' · ');
+            const hiddenPathCount = Math.max(panePaths.length - 3, 0);
+            const pathCountSuffix = hiddenPathCount > 0 ? ` (+${hiddenPathCount} more)` : '';
+            const folderLabel = pathPreview
+                ? `<div class="session-item-note">Folders: ${pathPreview}${pathCountSuffix}</div>`
+                : '';
+            const activePaneParts = [];
+            if (session.current_command) {
+                activePaneParts.push(escapeHtml(session.current_command));
+            }
+            if (session.pane_id) {
+                activePaneParts.push(escapeHtml(session.pane_id));
+            }
+            const activePaneLabel = activePaneParts.length > 0
+                ? `<div class="session-item-note">Active pane: ${activePaneParts.join(' · ')}</div>`
                 : '';
             const windowsLabel = `${session.windows} window${session.windows === 1 ? '' : 's'}`;
             const attachLabel = session.imported ? 'Open' : 'Attach';
@@ -1209,6 +1231,8 @@
                             <span>${windowsLabel}</span>
                             <span>${attachState}</span>
                         </div>
+                        ${folderLabel}
+                        ${activePaneLabel}
                         ${importedLabel}
                     </div>
                     <div class="session-actions">

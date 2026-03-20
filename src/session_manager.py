@@ -24,6 +24,7 @@ from src.tmux import (
     capture_tmux_screen,
     create_tmux_session,
     get_tmux_interaction_recommendation,
+    get_tmux_pane_state,
     list_tmux_sessions,
     send_tmux_key,
     tmux_session_exists,
@@ -263,6 +264,11 @@ class SessionManager:
         machine_sessions = []
         for session in list_tmux_sessions():
             imported_record = imported_by_tmux_name.get(session["name"])
+            try:
+                pane = get_tmux_pane_state(session["name"])
+            except ValueError as exc:
+                logger.debug("Failed to inspect tmux pane state for %s: %s", session["name"], exc)
+                pane = {}
             machine_sessions.append(
                 {
                     "name": session["name"],
@@ -271,6 +277,12 @@ class SessionManager:
                     "imported": imported_record is not None,
                     "imported_session_id": imported_record.session_id if imported_record else None,
                     "imported_name": imported_record.name if imported_record else None,
+                    "pane_id": pane.get("pane_id"),
+                    "current_command": pane.get("current_command"),
+                    "current_path": pane.get("current_path"),
+                    "pane_paths": pane.get("pane_paths", []),
+                    "alternate_screen": pane.get("alternate_screen", False),
+                    "interactive": pane.get("interactive", False),
                 }
             )
 

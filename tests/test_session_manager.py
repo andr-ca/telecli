@@ -109,6 +109,52 @@ def test_session_manager_create_tmux_session_persists_named_entry(tmp_path, monk
     assert saved["sessions"][0]["tmux_session_name"] == "pairing-shell"
 
 
+def test_session_manager_machine_tmux_sessions_include_active_pane_details(tmp_path, monkeypatch):
+    """Machine tmux discovery should expose active-pane metadata for UI selection."""
+    manager = SessionManager(registry_path=tmp_path / "tmux-session-registry.json")
+    manager._ensure_record(  # noqa: SLF001 - exercise persisted tmux metadata
+        "tmux-ops",
+        backend="tmux",
+        name="Ops Session",
+        tmux_session_name="ops",
+    )
+
+    monkeypatch.setattr(
+        "src.session_manager.list_tmux_sessions",
+        lambda: [{"name": "ops", "windows": 2, "attached": False}],
+    )
+    monkeypatch.setattr(
+        "src.session_manager.get_tmux_pane_state",
+        lambda session_name: {
+            "pane_id": "%42",
+            "current_command": "codex",
+            "current_path": f"/workspace/{session_name}",
+            "pane_paths": [f"/workspace/{session_name}", "/workspace/shared"],
+            "alternate_screen": False,
+            "interactive": True,
+        },
+    )
+
+    sessions = manager.list_machine_tmux_sessions()
+
+    assert sessions == [
+        {
+            "name": "ops",
+            "windows": 2,
+            "attached": False,
+            "imported": True,
+            "imported_session_id": "tmux-ops",
+            "imported_name": "Ops Session",
+            "pane_id": "%42",
+            "current_command": "codex",
+            "current_path": "/workspace/ops",
+            "pane_paths": ["/workspace/ops", "/workspace/shared"],
+            "alternate_screen": False,
+            "interactive": True,
+        }
+    ]
+
+
 def test_session_manager_uses_configured_registry_path(monkeypatch, tmp_path):
     """Default registry storage should come from Config when no explicit path is passed."""
     configured_path = tmp_path / "custom-registry.json"
