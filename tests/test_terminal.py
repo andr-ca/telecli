@@ -111,6 +111,26 @@ async def test_terminal_session_send_input_logs_metadata_not_raw_text(caplog):
     assert "len=" in caplog.text
 
 
+@pytest.mark.asyncio
+async def test_terminal_session_send_exact_input_logs_metadata_not_raw_text(caplog):
+    """DEBUG-level exact-input logs should also avoid raw command text."""
+    session = TerminalSession("test-session")
+
+    class FakeProcess:
+        def send(self, text: str):
+            return None
+
+    session.process = FakeProcess()
+    session.is_active = True
+
+    secret = "sk-exact-terminal-secret"
+    with caplog.at_level("DEBUG"):
+        await session.send_input(secret, newline=False)
+
+    assert secret not in caplog.text
+    assert "len=" in caplog.text
+
+
 # TODO: Add tests for:
 # - test_terminal_session_is_responsive()
 # - test_terminal_session_context_manager()

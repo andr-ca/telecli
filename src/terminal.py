@@ -192,7 +192,7 @@ class TerminalSession:
                     logger.info("Sent line to session %s (len=%s)", self.session_id, len(text))
                 else:
                     self.process.send(text)
-                    logger.debug(f"Sent input to session {self.session_id}: {text[:50]}...")
+                    logger.debug("Sent input to session %s (len=%s)", self.session_id, len(text))
         except Exception as e:
             logger.error(f"Error sending input to session {self.session_id}: {e}")
             raise RuntimeError(f"Failed to send input: {str(e)}")

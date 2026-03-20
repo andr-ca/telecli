@@ -1111,7 +1111,7 @@ async def test_screen_watch_tick_offloads_capability_probe(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_reply_with_current_screen_offloads_capture_to_worker_thread(monkeypatch):
-    """Current-screen replies should offload tmux capture work away from the event loop."""
+    """Current-screen replies should offload capability checks and tmux capture work away from the event loop."""
     manager = FakeSessionManager()
     monkeypatch.setattr(telegram_bot, "session_manager", manager)
     await telegram_bot.attachtmux_command(
@@ -1129,8 +1129,64 @@ async def test_reply_with_current_screen_offloads_capture_to_worker_thread(monke
     update = FakeUpdate(777, "/screen")
     await telegram_bot._reply_with_current_screen(update, "tmux-1", delay_seconds=0)
 
-    assert calls == [("capture_session_screen", ("tmux-1",), {})]
+    assert calls == [
+        ("get_session_mode_capabilities", ("tmux-1",), {}),
+        ("capture_session_screen", ("tmux-1",), {}),
+    ]
     assert update.message.replies == [("<pre>Claude is waiting\n&gt; </pre>", {"parse_mode": "HTML"})]
+
+
+@pytest.mark.asyncio
+async def test_edit_query_with_current_screen_offloads_capability_probe_and_capture(monkeypatch):
+    """Editing with the current screen should offload capability checks and tmux capture."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+    await telegram_bot.attachtmux_command(
+        FakeUpdate(777, "/attachtmux ops-shell Ops Shell"),
+        SimpleNamespace(args=["ops-shell", "Ops", "Shell"]),
+    )
+
+    calls = []
+
+    async def fake_to_thread(func, *args, **kwargs):
+        calls.append((func.__name__, args, kwargs))
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(telegram_bot.asyncio, "to_thread", fake_to_thread)
+    update = FakeCallbackUpdate(777, "command:key:tmux-1:ctrl-d")
+    await telegram_bot._edit_query_with_current_screen(update.callback_query, "tmux-1", delay_seconds=0)
+
+    assert calls == [
+        ("get_session_mode_capabilities", ("tmux-1",), {}),
+        ("capture_session_screen", ("tmux-1",), {}),
+    ]
+    assert update.callback_query.edits == [("<pre>Claude is waiting\n&gt; </pre>", {"parse_mode": "HTML"})]
+
+
+@pytest.mark.asyncio
+async def test_run_watch_action_offloads_capability_probe_and_capture(monkeypatch):
+    """Watch actions should offload capability checks and tmux capture work."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+    await telegram_bot.attachtmux_command(
+        FakeUpdate(777, "/attachtmux ops-shell Ops Shell"),
+        SimpleNamespace(args=["ops-shell", "Ops", "Shell"]),
+    )
+
+    calls = []
+
+    async def fake_to_thread(func, *args, **kwargs):
+        calls.append((func.__name__, args, kwargs))
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(telegram_bot.asyncio, "to_thread", fake_to_thread)
+    result = await telegram_bot._run_watch_action(777, "tmux-1", "on", chat_id=-100123)
+
+    assert result == "Screen watch enabled for tmux-1"
+    assert calls == [
+        ("get_session_mode_capabilities", ("tmux-1",), {}),
+        ("capture_session_screen", ("tmux-1",), {}),
+    ]
 
 
 @pytest.mark.asyncio

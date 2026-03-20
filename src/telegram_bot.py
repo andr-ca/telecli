@@ -578,7 +578,7 @@ async def _reply_with_current_screen(
     delay_seconds: float = 0.05,
 ) -> None:
     manager = _require_session_manager()
-    capabilities = manager.get_session_mode_capabilities(session_id)
+    capabilities = await _get_session_mode_capabilities_async(session_id)
     if not capabilities.get("supports_agent_mode"):
         if fallback_text is not None:
             await update.message.reply_text(fallback_text)
@@ -605,7 +605,7 @@ async def _edit_query_with_current_screen(
     delay_seconds: float = 0.05,
 ) -> None:
     manager = _require_session_manager()
-    capabilities = manager.get_session_mode_capabilities(session_id)
+    capabilities = await _get_session_mode_capabilities_async(session_id)
     if not capabilities.get("supports_agent_mode"):
         if fallback_text is not None:
             await query.edit_message_text(fallback_text)
@@ -644,7 +644,7 @@ def _get_watch_status_text(user_id: int, session_id: str) -> str:
 
 async def _run_watch_action(user_id: int, session_id: str, action: str, *, chat_id: int | None = None) -> str:
     manager = _require_session_manager()
-    capabilities = manager.get_session_mode_capabilities(session_id)
+    capabilities = await _get_session_mode_capabilities_async(session_id)
     if not capabilities.get("supports_agent_mode"):
         return "❌ Screen watch requires a tmux-backed session. Use /newtmux or /attachtmux."
 
