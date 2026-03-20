@@ -1434,10 +1434,21 @@
                 return;
             }
 
+            const requestedName = prompt('TeleCLI session name:', tmuxSessionName);
+            if (requestedName === null) {
+                return;
+            }
+
+            const trimmedName = requestedName.trim();
+            const payload = { tmux_session_name: tmuxSessionName };
+            if (trimmedName) {
+                payload.name = trimmedName;
+            }
+
             try {
                 const data = await apiRequest('/api/sessions/import-tmux', {
                     method: 'POST',
-                    body: JSON.stringify({ tmux_session_name: tmuxSessionName })
+                    body: JSON.stringify(payload)
                 });
                 rememberSessionMetadata(data.session);
                 await refreshTmuxSessions();
