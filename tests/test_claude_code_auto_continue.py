@@ -60,12 +60,13 @@ def test_parse_screen_reset_at_handles_hit_limit_screen_with_named_timezone():
     assert reset_at == datetime(2026, 3, 18, 11, 0, tzinfo=ZoneInfo("America/Toronto"))
 
 
-def test_parse_block_reset_at_uses_active_block_end_time():
-    """Block parsing should use the future block end when present."""
+def test_parse_block_reset_at_uses_explicit_usage_limit_reset_time():
+    """Block parsing should use an explicit limit reset time when ccusage provides one."""
     now = datetime(2026, 3, 18, 3, 32, tzinfo=timezone.utc)
     payload = {
         "blocks": [
             {
+                "usageLimitResetTime": "2026-03-18T04:15:00.000Z",
                 "startTime": "2026-03-18T01:00:00.000Z",
                 "endTime": "2026-03-18T06:00:00.000Z",
                 "projection": {"remainingMinutes": 148},
@@ -75,7 +76,26 @@ def test_parse_block_reset_at_uses_active_block_end_time():
 
     reset_at = ClaudeCodeAutoContinue._parse_block_reset_at(payload, now)
 
-    assert reset_at == datetime(2026, 3, 18, 6, 0, tzinfo=timezone.utc)
+    assert reset_at == datetime(2026, 3, 18, 4, 15, tzinfo=timezone.utc)
+
+
+def test_parse_block_reset_at_ignores_active_block_window_without_explicit_limit_reset():
+    """Active block windows alone should not be treated as proof of a current hard block."""
+    now = datetime(2026, 3, 19, 7, 4, tzinfo=ZoneInfo("America/Toronto"))
+    payload = {
+        "blocks": [
+            {
+                "startTime": "2026-03-19T10:00:00.000Z",
+                "endTime": "2026-03-19T15:00:00.000Z",
+                "actualEndTime": "2026-03-19T11:00:00.000Z",
+                "projection": {"remainingMinutes": 720},
+            }
+        ]
+    }
+
+    reset_at = ClaudeCodeAutoContinue._parse_block_reset_at(payload, now)
+
+    assert reset_at is None
 
 
 @pytest.mark.asyncio
@@ -177,6 +197,39 @@ async def test_hit_limit_screen_schedules_from_rendered_reset_time_without_ccusa
 
 
 @pytest.mark.asyncio
+async def test_limit_output_does_not_schedule_from_ccusage_active_block_window(monkeypatch):
+    """Limit detection should not arm from an active block window when ccusage has no explicit limit reset."""
+    controller = ClaudeCodeAutoContinue(grace_seconds=7)
+    active_block_payload = {
+        "blocks": [
+            {
+                "startTime": "2026-03-19T10:00:00.000Z",
+                "endTime": "2026-03-19T15:00:00.000Z",
+                "actualEndTime": "2026-03-19T11:00:00.000Z",
+                "projection": {"remainingMinutes": 720},
+            }
+        ]
+    }
+
+    async def run_ccusage_json(*args: str):
+        assert args == ("blocks", "--json", "--active", "--offline")
+        return active_block_payload
+
+    monkeypatch.setattr(controller, "_run_ccusage_json", run_ccusage_json)
+
+    controller.enable()
+    controller.add_output("Claude Code usage limit reached. Please wait for your 5-hour block reset.")
+    await asyncio.sleep(0.05)
+
+    status = controller.get_status()
+
+    assert status["waiting"] is False
+    assert status["scheduled_for"] is None
+    assert status["reset_at"] is None
+    assert status["last_error"] == "Unable to determine the next Claude usage reset from ccusage"
+
+
+@pytest.mark.asyncio
 async def test_stale_limit_screen_does_not_rearm_weekly_after_continue(monkeypatch):
     """A still-rendered limit screen should not schedule a weekly retry right after sending continue."""
     sent_inputs = []
@@ -202,6 +255,36 @@ async def test_stale_limit_screen_does_not_rearm_weekly_after_continue(monkeypat
     controller.inspect_screen_text(screen_text)
     await asyncio.sleep(0.15)
     controller.inspect_screen_text(screen_text)
+    await asyncio.sleep(0.05)
+
+    status = controller.get_status()
+
+    assert sent_inputs == ["continue"]
+    assert status["waiting"] is False
+    assert status["wait_reason"] is None
+    assert status["scheduled_for"] is None
+
+
+@pytest.mark.asyncio
+async def test_raw_output_history_does_not_rearm_after_successful_continue(monkeypatch):
+    """New non-limit output should not rearm from stale historical limit text after a successful send."""
+    sent_inputs = []
+    controller = ClaudeCodeAutoContinue(grace_seconds=0)
+    screen_text = "You've hit your limit · resets 11am (America/Toronto)"
+
+    async def send_input(text: str):
+        sent_inputs.append(text)
+
+    async def resolve_resume_deadline(_wait_reason_hint: str, _screen_text: str | None = None):
+        return datetime.now().astimezone() + timedelta(seconds=0.05), "block_reset"
+
+    controller.set_input_callback(send_input)
+    controller.enable()
+    monkeypatch.setattr(controller, "_resolve_resume_deadline", resolve_resume_deadline)
+
+    controller.add_output(screen_text)
+    await asyncio.sleep(0.15)
+    controller.add_output("Claude is responding normally again.")
     await asyncio.sleep(0.05)
 
     status = controller.get_status()

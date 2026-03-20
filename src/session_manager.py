@@ -422,6 +422,12 @@ class SessionManager:
         await self.send_input(session_id, "\r", newline=False, from_ai=True)
         logger.info("Submitted automation text for session %s", session_id)
 
+    async def _submit_automation_line(self, session_id: str, text: str) -> None:
+        """Submit a complete automation command as a single terminal line."""
+        logger.info("Sending automation line to session %s: %r", session_id, text[:100])
+        await self.send_input(session_id, text, newline=True, from_ai=True)
+        logger.info("Submitted automation line for session %s", session_id)
+
     async def resize_session(self, session_id: str, rows: int, cols: int) -> None:
         """Resize a terminal session."""
         if session_id in self.sessions:
@@ -543,7 +549,7 @@ class SessionManager:
         controller = self.claude_code_auto_controllers.get(session_id)
         if not controller:
             controller = ClaudeCodeAutoContinue()
-            controller.set_input_callback(lambda text: self._send_text_like_user(session_id, text))
+            controller.set_input_callback(lambda text: self._submit_automation_line(session_id, text))
             self.claude_code_auto_controllers[session_id] = controller
 
         controller.enable()

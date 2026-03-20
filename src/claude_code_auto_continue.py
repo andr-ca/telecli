@@ -209,6 +209,7 @@ class ClaudeCodeAutoContinue:
             self.reset_at = None
             self.wait_reason = None
             self.last_error = None
+            self.output_buffer.clear()
             logger.info("Sent delayed Claude Code `continue` input")
             await self._notify_status()
         except asyncio.CancelledError:
@@ -232,9 +233,7 @@ class ClaudeCodeAutoContinue:
             if screen_reset_at:
                 return screen_reset_at, "block_reset"
 
-        checks = ["block_reset", "weekly_reset"]
-        if wait_reason_hint == "weekly_reset":
-            checks = ["weekly_reset", "block_reset"]
+        checks = [wait_reason_hint] if wait_reason_hint in {"block_reset", "weekly_reset"} else ["block_reset", "weekly_reset"]
 
         for reason in checks:
             if reason == "block_reset":
@@ -411,24 +410,7 @@ class ClaudeCodeAutoContinue:
 
     @staticmethod
     def _parse_block_reset_at(payload: dict, now: datetime) -> Optional[datetime]:
-        blocks = payload.get("blocks")
-        if not isinstance(blocks, list) or not blocks:
-            return None
-
-        for block in blocks:
-            usage_limit_reset_time = ClaudeCodeAutoContinue._parse_iso_datetime(block.get("usageLimitResetTime"))
-            if usage_limit_reset_time and usage_limit_reset_time > now:
-                return usage_limit_reset_time
-
-            end_time = ClaudeCodeAutoContinue._parse_iso_datetime(block.get("endTime"))
-            if end_time and end_time > now:
-                return end_time
-
-            remaining_minutes = block.get("projection", {}).get("remainingMinutes")
-            if isinstance(remaining_minutes, (int, float)) and remaining_minutes > 0:
-                return now + timedelta(minutes=remaining_minutes)
-
-        return None
+        return ClaudeCodeAutoContinue._parse_usage_limit_reset_at(payload, now)
 
     @staticmethod
     def _parse_usage_limit_reset_at(payload: dict, now: datetime) -> Optional[datetime]:
