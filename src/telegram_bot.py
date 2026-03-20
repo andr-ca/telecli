@@ -525,6 +525,15 @@ async def _call_blocking_manager_method(method, *args, **kwargs):
     return await asyncio.to_thread(method, *args, **kwargs)
 
 
+async def _get_session_mode_capabilities_async(session_id: str) -> dict:
+    manager = _require_session_manager()
+    return await _call_blocking_manager_method(manager.get_session_mode_capabilities, session_id)
+
+
+def _tmux_only_command_message(command_name: str) -> str:
+    return f"❌ /{command_name} requires a tmux-backed session. Use /newtmux or /attachtmux."
+
+
 async def _reply_with_current_screen(
     update: Update,
     session_id: str,
@@ -630,7 +639,7 @@ async def _run_screen_watch_tick(bot) -> None:
             if not watch_state.enabled:
                 continue
 
-            capabilities = manager.get_session_mode_capabilities(session_id)
+            capabilities = await _get_session_mode_capabilities_async(session_id)
             if not capabilities.get("supports_agent_mode"):
                 continue
 
@@ -1026,6 +1035,11 @@ async def snapshot_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return
 
     session_id = _get_current_session_id(user_id)
+    capabilities = await _get_session_mode_capabilities_async(session_id)
+    if not capabilities.get("supports_agent_mode"):
+        await update.message.reply_text(_tmux_only_command_message("snapshot"))
+        return
+
     try:
         snapshot = await _call_blocking_manager_method(
             _require_session_manager().capture_session_snapshot,
@@ -1047,6 +1061,11 @@ async def screen_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     session_id = _get_current_session_id(user_id)
+    capabilities = await _get_session_mode_capabilities_async(session_id)
+    if not capabilities.get("supports_agent_mode"):
+        await update.message.reply_text(_tmux_only_command_message("screen"))
+        return
+
     try:
         screen = await _call_blocking_manager_method(_require_session_manager().capture_session_screen, session_id)
     except Exception as e:
@@ -1072,6 +1091,11 @@ async def tail_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         except ValueError:
             await update.message.reply_text("Usage: /tail [lines]")
             return
+
+    capabilities = await _get_session_mode_capabilities_async(session_id)
+    if not capabilities.get("supports_agent_mode"):
+        await update.message.reply_text(_tmux_only_command_message("tail"))
+        return
 
     try:
         tail_output = await _call_blocking_manager_method(
@@ -1591,7 +1615,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 reply_markup=_build_agent_mode_picker_markup(session_id),
             )
 
-        logger.info(f"User {user_id} executed command in session {session_id}: {command[:50]}...")
+        logger.info(
+            "User %s executed command in session %s (len=%s)",
+            user_id,
+            session_id,
+            len(command),
+        )
     except Exception as e:
         error_msg = f"❌ Error: {str(e)}"
         await update.message.reply_text(error_msg)

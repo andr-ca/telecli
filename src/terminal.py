@@ -11,6 +11,7 @@ from typing import Optional, AsyncIterator
 from src.config import Config
 
 logger = logging.getLogger(__name__)
+SEND_COMMAND_POLL_INTERVAL_SECONDS = 0.05
 
 
 def _join_output_chunks(chunks: list[str]) -> str:
@@ -188,7 +189,7 @@ class TerminalSession:
                 # Send input directly without executor for better responsiveness
                 if newline:
                     self.process.sendline(text)
-                    logger.info(f"Sent line to session {self.session_id}: {repr(text[:50])}")
+                    logger.info("Sent line to session %s (len=%s)", self.session_id, len(text))
                 else:
                     self.process.send(text)
                     logger.debug(f"Sent input to session {self.session_id}: {text[:50]}...")
@@ -213,7 +214,7 @@ class TerminalSession:
                 output = _append_incremental_output(output, new_chunks)
             if marker in output:
                 return output.split(marker, 1)[0]
-            await asyncio.sleep(0.01)
+            await asyncio.sleep(SEND_COMMAND_POLL_INTERVAL_SECONDS)
 
         raise TimeoutError(f"Command did not complete within {timeout} seconds")
 

@@ -818,15 +818,31 @@ async def test_handle_message_agent_mode_logs_metadata_not_raw_text(monkeypatch,
 
 
 @pytest.mark.asyncio
+async def test_handle_message_shell_mode_logs_metadata_not_raw_command(monkeypatch, caplog):
+    """Shell-mode logs should avoid raw command content at INFO level."""
+    manager = FakeSessionManager()
+    manager.stream_chunks["777"] = ["prompt$ ", "result\nprompt$ "]
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+
+    secret = "sk-shell-secret"
+    update = FakeUpdate(777, secret)
+    with caplog.at_level("INFO"):
+        await telegram_bot.handle_message(update, SimpleNamespace())
+
+    assert secret not in caplog.text
+    assert "len=" in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_snapshot_command_reports_backend_errors(monkeypatch):
     """Snapshot should surface backend failures as a Telegram error message."""
     manager = FakeSessionManager()
     monkeypatch.setattr(telegram_bot, "session_manager", manager)
+    await telegram_bot.attachtmux_command(
+        FakeUpdate(777, "/attachtmux ops-shell Ops Shell"),
+        SimpleNamespace(args=["ops-shell", "Ops", "Shell"]),
+    )
     manager.capture_session_snapshot = lambda session_id, *, lines=80: (_ for _ in ()).throw(ValueError("tmux unavailable"))  # noqa: E731
-
-    state = telegram_bot._get_user_sessions(777)
-    state.sessions["ops"] = "tmux-1"
-    state.current_alias = "ops"
 
     update = FakeUpdate(777, "/snapshot")
     await telegram_bot.snapshot_command(update, SimpleNamespace(args=[]))
@@ -835,20 +851,62 @@ async def test_snapshot_command_reports_backend_errors(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_snapshot_command_rejects_non_tmux_sessions_with_actionable_message(monkeypatch):
+    """Snapshot should guide users toward tmux-backed sessions before backend capture."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+
+    update = FakeUpdate(777, "/snapshot")
+    await telegram_bot.snapshot_command(update, SimpleNamespace(args=[]))
+
+    assert update.message.replies == [
+        ("❌ /snapshot requires a tmux-backed session. Use /newtmux or /attachtmux.", {})
+    ]
+
+
+@pytest.mark.asyncio
 async def test_tail_command_reports_backend_errors(monkeypatch):
     """Tail should surface backend failures as a Telegram error message."""
     manager = FakeSessionManager()
     monkeypatch.setattr(telegram_bot, "session_manager", manager)
+    await telegram_bot.attachtmux_command(
+        FakeUpdate(777, "/attachtmux ops-shell Ops Shell"),
+        SimpleNamespace(args=["ops-shell", "Ops", "Shell"]),
+    )
     manager.tail_session_output = lambda session_id, *, lines=20: (_ for _ in ()).throw(RuntimeError("tmux unavailable"))  # noqa: E731
-
-    state = telegram_bot._get_user_sessions(777)
-    state.sessions["ops"] = "tmux-1"
-    state.current_alias = "ops"
 
     update = FakeUpdate(777, "/tail")
     await telegram_bot.tail_command(update, SimpleNamespace(args=[]))
 
     assert update.message.replies == [("❌ Error: tmux unavailable", {})]
+
+
+@pytest.mark.asyncio
+async def test_screen_command_rejects_non_tmux_sessions_with_actionable_message(monkeypatch):
+    """Screen should reject non-tmux sessions with a consistent tmux guidance message."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+
+    update = FakeUpdate(777, "/screen")
+    await telegram_bot.screen_command(update, SimpleNamespace(args=[]))
+
+    assert update.message.replies == [
+        ("❌ /screen requires a tmux-backed session. Use /newtmux or /attachtmux.", {})
+    ]
+
+
+@pytest.mark.asyncio
+async def test_tail_command_rejects_non_tmux_sessions_with_actionable_message(monkeypatch):
+    """Tail should reject non-tmux sessions with a consistent tmux guidance message."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+
+    update = FakeUpdate(777, "/tail")
+    await telegram_bot.tail_command(update, SimpleNamespace(args=[]))
+
+    assert update.message.replies == [
+        ("❌ /tail requires a tmux-backed session. Use /newtmux or /attachtmux.", {})
+    ]
 
 
 @pytest.mark.asyncio
@@ -1024,6 +1082,31 @@ async def test_screen_watch_tick_uses_stored_group_chat_id(monkeypatch):
     assert bot.send_message_calls == [
         (-100789, "<pre>Change incoming\n&gt; </pre>", {"parse_mode": "HTML"})
     ]
+
+
+@pytest.mark.asyncio
+async def test_screen_watch_tick_offloads_capability_probe(monkeypatch):
+    """Watch ticks should offload capability checks before evaluating tmux state."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+    await telegram_bot.attachtmux_command(
+        FakeUpdate(777, "/attachtmux ops-shell Ops Shell"),
+        SimpleNamespace(args=["ops-shell", "Ops", "Shell"]),
+    )
+    await telegram_bot.watch_command(FakeUpdate(777, "/watch on"), SimpleNamespace(args=["on"]))
+
+    calls = []
+
+    async def fake_to_thread(func, *args, **kwargs):
+        calls.append((func.__name__, args, kwargs))
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(telegram_bot.asyncio, "to_thread", fake_to_thread)
+    bot = FakeBot()
+    manager.screens["tmux-1"] = "Change incoming\n> "
+    await telegram_bot._run_screen_watch_tick(bot)
+
+    assert calls[0] == ("get_session_mode_capabilities", ("tmux-1",), {})
 
 
 @pytest.mark.asyncio
