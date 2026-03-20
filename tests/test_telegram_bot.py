@@ -87,9 +87,13 @@ class FakeAiProxy:
 class FakeBot:
     def __init__(self):
         self.set_my_commands_calls = []
+        self.send_message_calls = []
 
     async def set_my_commands(self, commands):
         self.set_my_commands_calls.append(commands)
+
+    async def send_message(self, chat_id, text, **kwargs):
+        self.send_message_calls.append((chat_id, text, kwargs))
 
 
 class FakeApplicationBuilder:
@@ -127,6 +131,7 @@ class FakeSessionManager:
         self.runtime_sessions = {"777": FakeRuntimeSession(history="prompt$ ")}
         self.stream_chunks = {"777": ["prompt$ ", "pwd\n/home/demo\nprompt$ "]}
         self.snapshots = {}
+        self.screens = {}
         self.tails = {}
         self.machine_tmux_sessions = [
             {
@@ -237,6 +242,7 @@ class FakeSessionManager:
         self.runtime_sessions.setdefault(session_id, FakeRuntimeSession(history="tmux$ "))
         self.stream_chunks.setdefault(session_id, ["tmux$ ", "echo hi from tmux\nhi from tmux\ntmux$ "])
         self.snapshots.setdefault(session_id, "Claude is waiting\n> ")
+        self.screens.setdefault(session_id, "Claude is waiting\n> ")
         self.tails.setdefault(session_id, "Claude is waiting")
 
         for tmux_session in self.machine_tmux_sessions:
@@ -300,6 +306,9 @@ class FakeSessionManager:
 
     def capture_session_snapshot(self, session_id: str, *, lines: int = 80):
         return self.snapshots[session_id]
+
+    def capture_session_screen(self, session_id: str):
+        return self.screens[session_id]
 
     def tail_session_output(self, session_id: str, *, lines: int = 20):
         return self.tails[session_id]
@@ -622,6 +631,28 @@ async def test_mode_agent_requires_tmux_backed_session(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_mode_without_args_shows_action_picker(monkeypatch):
+    """Telegram should offer mode actions when /mode is invoked without arguments."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+
+    update = FakeUpdate(777, "/mode")
+    await telegram_bot.mode_command(update, SimpleNamespace(args=[]))
+
+    assert len(update.message.replies) == 1
+    text, kwargs = update.message.replies[0]
+    assert "Choose Telegram mode action" in text
+    reply_markup = kwargs["reply_markup"]
+    labels = [button.text for row in reply_markup.inline_keyboard for button in row]
+    callback_data = [button.callback_data for row in reply_markup.inline_keyboard for button in row]
+    assert "Status" in labels
+    assert "Shell" in labels
+    assert "Agent" not in labels
+    assert "command:mode:777:status" in callback_data
+    assert "command:mode:777:shell" in callback_data
+
+
+@pytest.mark.asyncio
 async def test_mode_agent_switches_tmux_backed_session(monkeypatch):
     """Agent mode should be accepted for tmux-backed sessions and stored per session."""
     manager = FakeSessionManager()
@@ -637,6 +668,25 @@ async def test_mode_agent_switches_tmux_backed_session(monkeypatch):
     state = telegram_bot._get_user_sessions(777)
     assert state.session_modes["tmux-1"] == "agent"
     assert update.message.replies == [("Mode set to agent for tmux-1", {})]
+
+
+@pytest.mark.asyncio
+async def test_mode_picker_callback_switches_tmux_session_to_agent(monkeypatch):
+    """Tapping a mode picker button should apply that mode to the targeted session."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+    await telegram_bot.attachtmux_command(
+        FakeUpdate(777, "/attachtmux ops-shell Ops Shell"),
+        SimpleNamespace(args=["ops-shell", "Ops", "Shell"]),
+    )
+
+    update = FakeCallbackUpdate(777, "command:mode:tmux-1:agent")
+    await telegram_bot.handle_command_picker(update, SimpleNamespace())
+
+    state = telegram_bot._get_user_sessions(777)
+    assert state.session_modes["tmux-1"] == "agent"
+    assert update.callback_query.answers == [{"text": None, "show_alert": False}]
+    assert update.callback_query.edits[0][0] == "Mode set to agent for tmux-1"
 
 
 @pytest.mark.asyncio
@@ -709,7 +759,7 @@ async def test_agent_mode_picker_rejects_unavailable_tmux_backed_session(monkeyp
 
 @pytest.mark.asyncio
 async def test_handle_message_uses_exact_send_in_agent_mode(monkeypatch):
-    """Agent mode should send raw text plus an explicit Enter key instead of shell command execution."""
+    """Agent mode should send raw text plus Enter and then return the cleaned current screen."""
     manager = FakeSessionManager()
     monkeypatch.setattr(telegram_bot, "session_manager", manager)
     await telegram_bot.attachtmux_command(
@@ -724,7 +774,7 @@ async def test_handle_message_uses_exact_send_in_agent_mode(monkeypatch):
     assert manager.exact_inputs == [("tmux-1", "continue")]
     assert manager.special_keys == [("tmux-1", "enter")]
     assert manager.sent_inputs == []
-    assert update.message.replies == [("Sent to agent session", {})]
+    assert update.message.replies == [("<pre>Claude is waiting\n&gt; </pre>", {"parse_mode": "HTML"})]
 
 
 @pytest.mark.asyncio
@@ -768,14 +818,108 @@ async def test_key_command_reports_backend_errors(monkeypatch):
     monkeypatch.setattr(telegram_bot, "session_manager", manager)
     manager.send_special_key = lambda session_id, key_name: (_ for _ in ()).throw(ValueError("unsupported key"))  # noqa: E731
 
-    state = telegram_bot._get_user_sessions(777)
-    state.sessions["ops"] = "tmux-1"
-    state.current_alias = "ops"
+    await telegram_bot.attachtmux_command(
+        FakeUpdate(777, "/attachtmux ops-shell Ops Shell"),
+        SimpleNamespace(args=["ops-shell", "Ops", "Shell"]),
+    )
 
     update = FakeUpdate(777, "/key enter")
     await telegram_bot.key_command(update, SimpleNamespace(args=["enter"]))
 
     assert update.message.replies == [("❌ Error: unsupported key", {})]
+
+
+@pytest.mark.asyncio
+async def test_key_without_args_shows_action_picker_for_tmux_session(monkeypatch):
+    """Telegram should offer key actions when /key is invoked without arguments."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+    await telegram_bot.attachtmux_command(
+        FakeUpdate(777, "/attachtmux ops-shell Ops Shell"),
+        SimpleNamespace(args=["ops-shell", "Ops", "Shell"]),
+    )
+
+    update = FakeUpdate(777, "/key")
+    await telegram_bot.key_command(update, SimpleNamespace(args=[]))
+
+    assert len(update.message.replies) == 1
+    text, kwargs = update.message.replies[0]
+    assert "Choose key to send" in text
+    reply_markup = kwargs["reply_markup"]
+    labels = [button.text for row in reply_markup.inline_keyboard for button in row]
+    callback_data = [button.callback_data for row in reply_markup.inline_keyboard for button in row]
+    assert "Enter" in labels
+    assert "Esc" in labels
+    assert "Ctrl+D" in labels
+    assert "command:key:tmux-1:enter" in callback_data
+    assert "command:key:tmux-1:ctrl-d" in callback_data
+
+
+@pytest.mark.asyncio
+async def test_watch_without_args_shows_action_picker_for_tmux_session(monkeypatch):
+    """Telegram should offer watch actions when /watch is invoked without arguments."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+    await telegram_bot.attachtmux_command(
+        FakeUpdate(777, "/attachtmux ops-shell Ops Shell"),
+        SimpleNamespace(args=["ops-shell", "Ops", "Shell"]),
+    )
+
+    update = FakeUpdate(777, "/watch")
+    await telegram_bot.watch_command(update, SimpleNamespace(args=[]))
+
+    assert len(update.message.replies) == 1
+    text, kwargs = update.message.replies[0]
+    assert "Choose screen watch action" in text
+    reply_markup = kwargs["reply_markup"]
+    labels = [button.text for row in reply_markup.inline_keyboard for button in row]
+    callback_data = [button.callback_data for row in reply_markup.inline_keyboard for button in row]
+    assert "Status" in labels
+    assert "Enable" in labels
+    assert "Disable" in labels
+    assert "command:watch:tmux-1:on" in callback_data
+    assert "command:watch:tmux-1:off" in callback_data
+
+
+@pytest.mark.asyncio
+async def test_watch_on_enables_screen_monitoring_for_tmux_session(monkeypatch):
+    """Watch on should enable background screen monitoring for the active tmux session."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+    await telegram_bot.attachtmux_command(
+        FakeUpdate(777, "/attachtmux ops-shell Ops Shell"),
+        SimpleNamespace(args=["ops-shell", "Ops", "Shell"]),
+    )
+
+    update = FakeUpdate(777, "/watch on")
+    await telegram_bot.watch_command(update, SimpleNamespace(args=["on"]))
+
+    assert update.message.replies == [("Screen watch enabled for tmux-1", {})]
+
+
+@pytest.mark.asyncio
+async def test_screen_watch_tick_pushes_stable_changed_screen_once(monkeypatch):
+    """Enabled watches should push a screen only after the changed pane stays stable."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+    await telegram_bot.attachtmux_command(
+        FakeUpdate(777, "/attachtmux ops-shell Ops Shell"),
+        SimpleNamespace(args=["ops-shell", "Ops", "Shell"]),
+    )
+    await telegram_bot.watch_command(FakeUpdate(777, "/watch on"), SimpleNamespace(args=["on"]))
+
+    bot = FakeBot()
+    manager.screens["tmux-1"] = "Change incoming\n> "
+    await telegram_bot._run_screen_watch_tick(bot)
+    assert bot.send_message_calls == []
+
+    await telegram_bot._run_screen_watch_tick(bot)
+    assert bot.send_message_calls == [
+        (777, "<pre>Change incoming\n&gt; </pre>", {"parse_mode": "HTML"})
+    ]
+
+    await telegram_bot._run_screen_watch_tick(bot)
+    assert len(bot.send_message_calls) == 1
 
 
 @pytest.mark.asyncio
@@ -791,7 +935,42 @@ async def test_snapshot_command_returns_tmux_capture(monkeypatch):
     update = FakeUpdate(777, "/snapshot")
     await telegram_bot.snapshot_command(update, SimpleNamespace(args=[]))
 
-    assert update.message.replies == [("Claude is waiting\n> ", {})]
+    assert update.message.replies == [("<pre>Claude is waiting\n&gt; </pre>", {"parse_mode": "HTML"})]
+
+
+@pytest.mark.asyncio
+async def test_key_picker_callback_sends_key_and_returns_current_screen(monkeypatch):
+    """Tapping a key picker button should send that key and show the refreshed screen."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+    await telegram_bot.attachtmux_command(
+        FakeUpdate(777, "/attachtmux ops-shell Ops Shell"),
+        SimpleNamespace(args=["ops-shell", "Ops", "Shell"]),
+    )
+
+    update = FakeCallbackUpdate(777, "command:key:tmux-1:ctrl-d")
+    await telegram_bot.handle_command_picker(update, SimpleNamespace())
+
+    assert manager.special_keys == [("tmux-1", "ctrl-d")]
+    assert update.callback_query.answers == [{"text": None, "show_alert": False}]
+    assert update.callback_query.edits == [("<pre>Claude is waiting\n&gt; </pre>", {"parse_mode": "HTML"})]
+
+
+@pytest.mark.asyncio
+async def test_screen_command_returns_visible_tmux_screen(monkeypatch):
+    """Screen should show the visible tmux pane in preformatted form."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+    await telegram_bot.attachtmux_command(
+        FakeUpdate(777, "/attachtmux ops-shell Ops Shell"),
+        SimpleNamespace(args=["ops-shell", "Ops", "Shell"]),
+    )
+    manager.screens["tmux-1"] = "top line\nbottom line\n\n\n"
+
+    update = FakeUpdate(777, "/screen")
+    await telegram_bot.screen_command(update, SimpleNamespace(args=[]))
+
+    assert update.message.replies == [("<pre>top line\nbottom line</pre>", {"parse_mode": "HTML"})]
 
 
 @pytest.mark.asyncio
@@ -812,7 +991,7 @@ async def test_tail_command_returns_recent_tmux_output(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_send_command_forwards_exact_text(monkeypatch):
-    """The explicit send command should paste text without adding shell semantics."""
+    """The explicit send command should paste text and then return the current screen."""
     manager = FakeSessionManager()
     monkeypatch.setattr(telegram_bot, "session_manager", manager)
     await telegram_bot.attachtmux_command(
@@ -824,7 +1003,7 @@ async def test_send_command_forwards_exact_text(monkeypatch):
     await telegram_bot.send_command(update, SimpleNamespace(args=["continue"]))
 
     assert manager.exact_inputs == [("tmux-1", "continue")]
-    assert update.message.replies == [("Sent text to session", {})]
+    assert update.message.replies == [("<pre>Claude is waiting\n&gt; </pre>", {"parse_mode": "HTML"})]
 
 
 @pytest.mark.asyncio
@@ -846,7 +1025,7 @@ async def test_send_command_reports_backend_errors(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_key_command_sends_named_special_key(monkeypatch):
-    """The key command should route a normalized special key to the active tmux session."""
+    """The key command should route a normalized special key and then return the screen."""
     manager = FakeSessionManager()
     monkeypatch.setattr(telegram_bot, "session_manager", manager)
     await telegram_bot.attachtmux_command(
@@ -858,7 +1037,59 @@ async def test_key_command_sends_named_special_key(monkeypatch):
     await telegram_bot.key_command(update, SimpleNamespace(args=["enter"]))
 
     assert manager.special_keys == [("tmux-1", "enter")]
-    assert update.message.replies == [("Sent key enter", {})]
+    assert update.message.replies == [("<pre>Claude is waiting\n&gt; </pre>", {"parse_mode": "HTML"})]
+
+
+@pytest.mark.asyncio
+async def test_key_command_supports_navigation_and_control_keys(monkeypatch):
+    """The key command should support the broader Telegram key set and refresh the screen."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+    await telegram_bot.attachtmux_command(
+        FakeUpdate(777, "/attachtmux ops-shell Ops Shell"),
+        SimpleNamespace(args=["ops-shell", "Ops", "Shell"]),
+    )
+
+    update = FakeUpdate(777, "/key left")
+    await telegram_bot.key_command(update, SimpleNamespace(args=["left"]))
+
+    assert manager.special_keys == [("tmux-1", "left")]
+    assert update.message.replies == [("<pre>Claude is waiting\n&gt; </pre>", {"parse_mode": "HTML"})]
+
+
+@pytest.mark.asyncio
+async def test_continue_command_sends_continue_and_enter(monkeypatch):
+    """Continue should send the literal continue text, submit it, and return the screen."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+    await telegram_bot.attachtmux_command(
+        FakeUpdate(777, "/attachtmux ops-shell Ops Shell"),
+        SimpleNamespace(args=["ops-shell", "Ops", "Shell"]),
+    )
+
+    update = FakeUpdate(777, "/continue")
+    await telegram_bot.continue_command(update, SimpleNamespace(args=[]))
+
+    assert manager.exact_inputs == [("tmux-1", "continue")]
+    assert manager.special_keys == [("tmux-1", "enter")]
+    assert update.message.replies == [("<pre>Claude is waiting\n&gt; </pre>", {"parse_mode": "HTML"})]
+
+
+@pytest.mark.asyncio
+async def test_interrupt_command_sends_ctrl_c(monkeypatch):
+    """Interrupt should send Ctrl+C and then return the current screen."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+    await telegram_bot.attachtmux_command(
+        FakeUpdate(777, "/attachtmux ops-shell Ops Shell"),
+        SimpleNamespace(args=["ops-shell", "Ops", "Shell"]),
+    )
+
+    update = FakeUpdate(777, "/interrupt")
+    await telegram_bot.interrupt_command(update, SimpleNamespace(args=[]))
+
+    assert manager.special_keys == [("tmux-1", "ctrl-c")]
+    assert update.message.replies == [("<pre>Claude is waiting\n&gt; </pre>", {"parse_mode": "HTML"})]
 
 
 @pytest.mark.asyncio
@@ -1085,6 +1316,10 @@ async def test_register_bot_commands_sets_slash_menu_for_autocomplete():
     assert any(command.command == "help" for command in commands)
     assert any(command.command == "attachtmux" for command in commands)
     assert any(command.command == "mode" for command in commands)
+    assert any(command.command == "continue" for command in commands)
+    assert any(command.command == "interrupt" for command in commands)
+    assert any(command.command == "screen" for command in commands)
+    assert any(command.command == "watch" for command in commands)
     assert any(command.command == "snapshot" for command in commands)
     assert any(command.command == "tail" for command in commands)
     assert any(command.command == "repeat" for command in commands)
@@ -1122,6 +1357,10 @@ async def test_help_command_lists_commands_and_autocomplete_hint(monkeypatch):
     assert "/mode <shell|agent|status>" in rendered
     assert "shell mode" in rendered.lower()
     assert "agent mode" in rendered.lower()
+    assert "/screen" in rendered
     assert "/snapshot" in rendered
     assert "/tail [lines]" in rendered
+    assert "/key <enter|esc|tab|up|down|left|right|backspace|ctrl-c|ctrl-d>" in rendered
+    assert "/continue" in rendered
+    assert "/interrupt" in rendered
     assert "/repeat - Repeat the last terminal output" in rendered

@@ -20,18 +20,32 @@ class AIProxy:
     
     def __init__(
         self,
-        llm_provider: LLMProvider,
+        llm_provider: Optional[LLMProvider] = None,
         system_prompt: Optional[str] = None,
         max_iterations: Optional[int] = None,
         buffer_size: Optional[int] = None,
         context_lines: Optional[int] = None,
-        fallback_provider_names: Optional[list[str]] = None
+        fallback_provider_names: Optional[list[str]] = None,
+        primary_provider: Optional[str] = None,
+        fallback_providers: Optional[list[str]] = None,
     ):
         from src.config import Config
-        
+
+        if llm_provider is None:
+            if primary_provider is None:
+                raise TypeError("AIProxy requires llm_provider or primary_provider")
+
+            llm_provider = LLMProviderFactory.create(primary_provider)
+            if not llm_provider:
+                raise ValueError(f"Unknown or unavailable LLM provider: {primary_provider}")
+
+        fallback_names = fallback_provider_names
+        if fallback_names is None:
+            fallback_names = fallback_providers or []
+
         self.llm_provider = llm_provider
         self.primary_provider_name = llm_provider.get_name()
-        self.fallback_provider_names = fallback_provider_names or []  # List of fallback provider names to try on 429
+        self.fallback_provider_names = list(fallback_names)  # List of fallback provider names to try on 429
         self.system_prompt = system_prompt or "You are helping automate terminal interactions. Provide brief, direct responses."
         self.max_iterations = max_iterations or Config.AI_PROXY_MAX_ITERATIONS
         self.enabled = False
@@ -57,6 +71,16 @@ class AIProxy:
         self.max_memory_items = 20  # Keep last 20 exchanges
         self.memory_summary = ""  # Compressed summary of older interactions
         self.summarize_threshold = 12  # Summarize when memory exceeds this
+
+    @property
+    def primary_provider(self) -> str:
+        """Backward-compatible alias for the active provider name."""
+        return self.primary_provider_name
+
+    @property
+    def fallback_providers(self) -> list[str]:
+        """Backward-compatible alias for fallback provider names."""
+        return self.fallback_provider_names
         
     def enable(self):
         """Enable AI proxy"""

@@ -4,6 +4,7 @@ Telegram bot integration
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 import re
 import shlex
@@ -94,6 +95,18 @@ COMMAND_SPECS = [
         "help": "Repeat the last terminal output shown in Telegram for the current session.",
     },
     {
+        "command": "screen",
+        "description": "Show current screen",
+        "usage": "/screen",
+        "help": "Show what is currently visible in the active tmux pane.",
+    },
+    {
+        "command": "watch",
+        "description": "Monitor screen changes",
+        "usage": "/watch <on|off|status>",
+        "help": "Enable or disable Telegram push updates when the active tmux screen changes significantly.",
+    },
+    {
         "command": "snapshot",
         "description": "Show tmux snapshot",
         "usage": "/snapshot",
@@ -114,8 +127,20 @@ COMMAND_SPECS = [
     {
         "command": "key",
         "description": "Send a special key",
-        "usage": "/key <enter|esc|tab|up|down|ctrl-c>",
+        "usage": "/key <enter|esc|tab|up|down|left|right|backspace|ctrl-c|ctrl-d>",
         "help": "Send a named special key to the active session.",
+    },
+    {
+        "command": "continue",
+        "description": "Send continue",
+        "usage": "/continue",
+        "help": "Send `continue` and press Enter in the active session.",
+    },
+    {
+        "command": "interrupt",
+        "description": "Send Ctrl+C",
+        "usage": "/interrupt",
+        "help": "Send Ctrl+C to interrupt the active session.",
     },
     {
         "command": "features",
@@ -159,14 +184,31 @@ class TelegramUserSessions:
     sessions: dict[str, str] = field(default_factory=dict)
     last_outputs: dict[str, str] = field(default_factory=dict)
     session_modes: dict[str, str] = field(default_factory=dict)
+    screen_watches: dict[str, "ScreenWatchState"] = field(default_factory=dict)
     suggestion_dismissals: dict[str, bool] = field(default_factory=dict)
     last_suggested_signature: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class ScreenWatchState:
+    enabled: bool = False
+    last_delivered_screen: str | None = None
+    pending_screen: str | None = None
+    pending_count: int = 0
 
 
 _telegram_user_sessions: dict[int, TelegramUserSessions] = {}
 SESSION_PICKER_CALLBACK_PREFIX = "use-session:"
 FEATURE_PICKER_CALLBACK_PREFIX = "feature:"
 AGENT_MODE_CALLBACK_PREFIX = "agent-mode:"
+COMMAND_PICKER_CALLBACK_PREFIX = "command:"
+SCREEN_WATCH_POLL_INTERVAL_SECONDS = 2.0
+SCREEN_WATCH_STABLE_POLLS = 2
+KEY_PICKER_LAYOUT = [
+    [("Enter", "enter"), ("Esc", "esc"), ("Tab", "tab")],
+    [("Up", "up"), ("Down", "down"), ("Left", "left"), ("Right", "right")],
+    [("Backspace", "backspace"), ("Ctrl+C", "ctrl-c"), ("Ctrl+D", "ctrl-d")],
+]
 
 
 def set_session_manager(manager: SessionManager | None) -> None:
@@ -365,10 +407,61 @@ def _build_agent_mode_picker_markup(session_id: str) -> InlineKeyboardMarkup:
     )
 
 
+def _build_mode_picker_markup(session_id: str) -> InlineKeyboardMarkup:
+    keyboard = [
+        [
+            InlineKeyboardButton("Status", callback_data=f"{COMMAND_PICKER_CALLBACK_PREFIX}mode:{session_id}:status"),
+            InlineKeyboardButton("Shell", callback_data=f"{COMMAND_PICKER_CALLBACK_PREFIX}mode:{session_id}:shell"),
+        ]
+    ]
+    capabilities = _require_session_manager().get_session_mode_capabilities(session_id)
+    if capabilities.get("supports_agent_mode"):
+        keyboard.append(
+            [InlineKeyboardButton("Agent", callback_data=f"{COMMAND_PICKER_CALLBACK_PREFIX}mode:{session_id}:agent")]
+        )
+    keyboard.append([InlineKeyboardButton("Cancel", callback_data=f"{COMMAND_PICKER_CALLBACK_PREFIX}mode:{session_id}:cancel")])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def _build_key_picker_markup(session_id: str) -> InlineKeyboardMarkup:
+    keyboard = [
+        [
+            InlineKeyboardButton(label, callback_data=f"{COMMAND_PICKER_CALLBACK_PREFIX}key:{session_id}:{key_name}")
+            for label, key_name in row
+        ]
+        for row in KEY_PICKER_LAYOUT
+    ]
+    keyboard.append([InlineKeyboardButton("Cancel", callback_data=f"{COMMAND_PICKER_CALLBACK_PREFIX}key:{session_id}:cancel")])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def _build_watch_picker_markup(session_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("Status", callback_data=f"{COMMAND_PICKER_CALLBACK_PREFIX}watch:{session_id}:status"),
+                InlineKeyboardButton("Enable", callback_data=f"{COMMAND_PICKER_CALLBACK_PREFIX}watch:{session_id}:on"),
+                InlineKeyboardButton("Disable", callback_data=f"{COMMAND_PICKER_CALLBACK_PREFIX}watch:{session_id}:off"),
+            ],
+            [InlineKeyboardButton("Cancel", callback_data=f"{COMMAND_PICKER_CALLBACK_PREFIX}watch:{session_id}:cancel")],
+        ]
+    )
+
+
 def _strip_ansi(text: str) -> str:
     text = ANSI_ESCAPE_RE.sub("", text)
     text = text.replace("\r", "\n")
     return CONTROL_CHAR_RE.sub("", text)
+
+
+def _clean_screen_text(text: str) -> str:
+    """Normalize a terminal screen capture for Telegram display."""
+    clean = _strip_ansi(text)
+    lines = clean.splitlines()
+    while lines and not lines[-1].strip():
+        lines.pop()
+    rendered = "\n".join(lines)
+    return rendered or "(screen is empty)"
 
 
 def _format_command_output(command: str, output: str) -> str:
@@ -403,6 +496,170 @@ def _chunk_has_meaningful_output(command: str, chunk: str) -> bool:
 async def _reply_in_chunks(update: Update, text: str) -> None:
     for start in range(0, len(text), 4000):
         await update.message.reply_text(text[start:start + 4000])
+
+
+async def _reply_screen(update: Update, screen_text: str) -> None:
+    clean = _clean_screen_text(screen_text)
+    for start in range(0, len(clean), 3500):
+        chunk = clean[start:start + 3500]
+        await update.message.reply_text(f"<pre>{html.escape(chunk)}</pre>", parse_mode="HTML")
+
+
+async def _send_screen_via_bot(bot, chat_id: int, screen_text: str) -> None:
+    clean = _clean_screen_text(screen_text)
+    for start in range(0, len(clean), 3500):
+        chunk = clean[start:start + 3500]
+        await bot.send_message(chat_id=chat_id, text=f"<pre>{html.escape(chunk)}</pre>", parse_mode="HTML")
+
+
+async def _edit_query_with_screen(query, screen_text: str) -> None:
+    clean = _clean_screen_text(screen_text)
+    chunks = [clean[start:start + 3500] for start in range(0, len(clean), 3500)] or ["(screen is empty)"]
+    await query.edit_message_text(f"<pre>{html.escape(chunks[0])}</pre>", parse_mode="HTML")
+    for chunk in chunks[1:]:
+        await query.message.reply_text(f"<pre>{html.escape(chunk)}</pre>", parse_mode="HTML")
+
+
+async def _reply_with_current_screen(
+    update: Update,
+    session_id: str,
+    *,
+    fallback_text: str | None = None,
+    delay_seconds: float = 0.05,
+) -> None:
+    manager = _require_session_manager()
+    capabilities = manager.get_session_mode_capabilities(session_id)
+    if not capabilities.get("supports_agent_mode"):
+        if fallback_text is not None:
+            await update.message.reply_text(fallback_text)
+        return
+
+    if delay_seconds:
+        await asyncio.sleep(delay_seconds)
+
+    try:
+        screen = manager.capture_session_screen(session_id)
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {str(e)}")
+        return
+
+    _mark_screen_delivered(update.effective_user.id, session_id, screen)
+    await _reply_screen(update, screen)
+
+
+async def _edit_query_with_current_screen(
+    query,
+    session_id: str,
+    *,
+    fallback_text: str | None = None,
+    delay_seconds: float = 0.05,
+) -> None:
+    manager = _require_session_manager()
+    capabilities = manager.get_session_mode_capabilities(session_id)
+    if not capabilities.get("supports_agent_mode"):
+        if fallback_text is not None:
+            await query.edit_message_text(fallback_text)
+        return
+
+    if delay_seconds:
+        await asyncio.sleep(delay_seconds)
+
+    try:
+        screen = manager.capture_session_screen(session_id)
+    except Exception as e:
+        await query.edit_message_text(f"❌ Error: {str(e)}")
+        return
+
+    _mark_screen_delivered(query.from_user.id, session_id, screen)
+    await _edit_query_with_screen(query, screen)
+
+
+def _get_screen_watch_state(user_id: int, session_id: str) -> ScreenWatchState:
+    state = _get_user_sessions(user_id)
+    return state.screen_watches.setdefault(session_id, ScreenWatchState())
+
+
+def _mark_screen_delivered(user_id: int, session_id: str, screen_text: str) -> None:
+    watch_state = _get_screen_watch_state(user_id, session_id)
+    clean = _clean_screen_text(screen_text)
+    watch_state.last_delivered_screen = clean
+    watch_state.pending_screen = None
+    watch_state.pending_count = 0
+
+
+def _get_watch_status_text(user_id: int, session_id: str) -> str:
+    watch_state = _get_screen_watch_state(user_id, session_id)
+    return f"Screen watch: {'on' if watch_state.enabled else 'off'} for {session_id}"
+
+
+def _run_watch_action(user_id: int, session_id: str, action: str) -> str:
+    manager = _require_session_manager()
+    capabilities = manager.get_session_mode_capabilities(session_id)
+    if not capabilities.get("supports_agent_mode"):
+        return "❌ Screen watch requires a tmux-backed session. Use /newtmux or /attachtmux."
+
+    watch_state = _get_screen_watch_state(user_id, session_id)
+    if action == "status":
+        return _get_watch_status_text(user_id, session_id)
+
+    if action == "on":
+        screen = manager.capture_session_screen(session_id)
+        watch_state.enabled = True
+        _mark_screen_delivered(user_id, session_id, screen)
+        return f"Screen watch enabled for {session_id}"
+
+    if action == "off":
+        watch_state.enabled = False
+        watch_state.pending_screen = None
+        watch_state.pending_count = 0
+        return f"Screen watch disabled for {session_id}"
+
+    return "Usage: /watch <on|off|status>"
+
+
+async def _run_screen_watch_tick(bot) -> None:
+    manager = _require_session_manager()
+    for user_id, state in list(_telegram_user_sessions.items()):
+        for session_id, watch_state in list(state.screen_watches.items()):
+            if not watch_state.enabled:
+                continue
+
+            capabilities = manager.get_session_mode_capabilities(session_id)
+            if not capabilities.get("supports_agent_mode"):
+                continue
+
+            try:
+                screen = manager.capture_session_screen(session_id)
+            except Exception as e:
+                logger.debug("Skipping screen watch tick for %s/%s: %s", user_id, session_id, e)
+                continue
+
+            clean = _clean_screen_text(screen)
+            if clean == watch_state.last_delivered_screen:
+                watch_state.pending_screen = None
+                watch_state.pending_count = 0
+                continue
+
+            if clean == watch_state.pending_screen:
+                watch_state.pending_count += 1
+            else:
+                watch_state.pending_screen = clean
+                watch_state.pending_count = 1
+
+            if watch_state.pending_count < SCREEN_WATCH_STABLE_POLLS:
+                continue
+
+            await _send_screen_via_bot(bot, user_id, clean)
+            _mark_screen_delivered(user_id, session_id, clean)
+
+
+async def _screen_watch_loop(bot) -> None:
+    try:
+        while True:
+            await _run_screen_watch_tick(bot)
+            await asyncio.sleep(SCREEN_WATCH_POLL_INTERVAL_SECONDS)
+    except asyncio.CancelledError:
+        raise
 
 
 def _build_bot_commands() -> list[BotCommand]:
@@ -768,7 +1025,25 @@ async def snapshot_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await update.message.reply_text(f"❌ Error: {str(e)}")
         return
 
-    await _reply_in_chunks(update, _strip_ansi(snapshot))
+    await _reply_screen(update, snapshot)
+
+
+async def screen_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show the currently visible tmux pane."""
+    user_id = update.effective_user.id
+    if not is_telegram_user_allowed(user_id):
+        await update.message.reply_text("❌ Unauthorized")
+        return
+
+    session_id = _get_current_session_id(user_id)
+    try:
+        screen = _require_session_manager().capture_session_screen(session_id)
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {str(e)}")
+        return
+
+    _mark_screen_delivered(user_id, session_id, screen)
+    await _reply_screen(update, screen)
 
 
 async def tail_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -796,6 +1071,35 @@ async def tail_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await _reply_in_chunks(update, _strip_ansi(tail_output))
 
 
+async def watch_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Enable or disable background screen monitoring for the active tmux session."""
+    user_id = update.effective_user.id
+    if not is_telegram_user_allowed(user_id):
+        await update.message.reply_text("❌ Unauthorized")
+        return
+
+    session_id = _get_current_session_id(user_id)
+    capabilities = _require_session_manager().get_session_mode_capabilities(session_id)
+    if not capabilities.get("supports_agent_mode"):
+        await update.message.reply_text("❌ Screen watch requires a tmux-backed session. Use /newtmux or /attachtmux.")
+        return
+
+    if not context.args:
+        await update.message.reply_text(
+            f"Choose screen watch action for {session_id}.\n{_get_watch_status_text(user_id, session_id)}",
+            reply_markup=_build_watch_picker_markup(session_id),
+        )
+        return
+
+    try:
+        response = _run_watch_action(user_id, session_id, context.args[0].lower())
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {str(e)}")
+        return
+
+    await update.message.reply_text(response)
+
+
 async def send_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send exact text into the active session without newline semantics."""
     user_id = update.effective_user.id
@@ -814,7 +1118,7 @@ async def send_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await update.message.reply_text(f"❌ Error: {str(e)}")
         return
 
-    await update.message.reply_text("Sent text to session")
+    await _reply_with_current_screen(update, session_id, fallback_text="Sent text to session")
 
 
 async def key_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -823,11 +1127,20 @@ async def key_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if not is_telegram_user_allowed(user_id):
         await update.message.reply_text("❌ Unauthorized")
         return
-    if not context.args:
-        await update.message.reply_text("Usage: /key <enter|esc|tab|up|down|ctrl-c>")
-        return
 
     session_id = _get_current_session_id(user_id)
+    capabilities = _require_session_manager().get_session_mode_capabilities(session_id)
+    if not capabilities.get("supports_agent_mode"):
+        await update.message.reply_text("❌ Agent mode requires a tmux-backed session. Use /newtmux or /attachtmux.")
+        return
+
+    if not context.args:
+        await update.message.reply_text(
+            f"Choose key to send to {session_id}.",
+            reply_markup=_build_key_picker_markup(session_id),
+        )
+        return
+
     key_name = context.args[0].lower()
     try:
         _require_session_manager().send_special_key(session_id, key_name)
@@ -835,17 +1148,54 @@ async def key_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.message.reply_text(f"❌ Error: {str(e)}")
         return
 
-    await update.message.reply_text(f"Sent key {key_name}")
+    await _reply_with_current_screen(update, session_id, fallback_text=f"Sent key {key_name}")
 
 
-def _render_mode_status_text(user_id: int) -> str:
-    state = _get_user_sessions(user_id)
+async def continue_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send `continue` followed by Enter to the active session."""
+    user_id = update.effective_user.id
+    if not is_telegram_user_allowed(user_id):
+        await update.message.reply_text("❌ Unauthorized")
+        return
+
     session_id = _get_current_session_id(user_id)
+    try:
+        manager = _require_session_manager()
+        await manager.send_exact_input(session_id, "continue")
+        manager.send_special_key(session_id, "enter")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {str(e)}")
+        return
+
+    await _reply_with_current_screen(update, session_id, fallback_text="Sent continue to session")
+
+
+async def interrupt_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send Ctrl+C to the active session."""
+    user_id = update.effective_user.id
+    if not is_telegram_user_allowed(user_id):
+        await update.message.reply_text("❌ Unauthorized")
+        return
+
+    session_id = _get_current_session_id(user_id)
+    try:
+        _require_session_manager().send_special_key(session_id, "ctrl-c")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {str(e)}")
+        return
+
+    await _reply_with_current_screen(update, session_id, fallback_text="Sent interrupt to session")
+
+
+def _render_mode_status_text(user_id: int, session_id: str | None = None) -> str:
+    state = _get_user_sessions(user_id)
+    session_id = session_id or _get_current_session_id(user_id)
     manager = _require_session_manager()
     session = manager.get_session_summary(session_id)
     capabilities = manager.get_session_mode_capabilities(session_id)
+    current_alias = next((alias for alias, known_id in state.sessions.items() if known_id == session_id), session_id)
     lines = [
-        f"Current session: {state.current_alias} ({session_id})",
+        f"Current session: {current_alias} ({session_id})",
         f"Mode: {_get_session_mode(user_id, session_id)}",
         f"Backend: {session['backend']}",
         f"Agent mode supported: {'yes' if capabilities['supports_agent_mode'] else 'no'}",
@@ -853,6 +1203,22 @@ def _render_mode_status_text(user_id: int) -> str:
     if session.get("tmux_session_name"):
         lines.append(f"tmux target: {session['tmux_session_name']}")
     return "\n".join(lines)
+
+
+def _run_mode_action(user_id: int, session_id: str, action: str) -> str:
+    manager = _require_session_manager()
+    if action == "status":
+        return _render_mode_status_text(user_id, session_id)
+
+    if action not in {"shell", "agent"}:
+        return "Usage: /mode <shell|agent|status>"
+
+    capabilities = manager.get_session_mode_capabilities(session_id)
+    if action == "agent" and not capabilities["supports_agent_mode"]:
+        return "❌ Agent mode requires a tmux-backed session. Use /newtmux or /attachtmux."
+
+    _set_session_mode(user_id, session_id, action)
+    return f"Mode set to {action} for {session_id}"
 
 
 def _get_agent_mode_suggestion(user_id: int, session_id: str) -> dict | None:
@@ -880,24 +1246,14 @@ async def mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
 
     session_id = _get_current_session_id(user_id)
-    manager = _require_session_manager()
-    action = context.args[0].lower() if context.args else "status"
-
-    if action == "status":
-        await update.message.reply_text(_render_mode_status_text(user_id))
+    if not context.args:
+        await update.message.reply_text(
+            f"Choose Telegram mode action for {session_id}.\n{_render_mode_status_text(user_id, session_id)}",
+            reply_markup=_build_mode_picker_markup(session_id),
+        )
         return
 
-    if action not in {"shell", "agent"}:
-        await update.message.reply_text("Usage: /mode <shell|agent|status>")
-        return
-
-    capabilities = manager.get_session_mode_capabilities(session_id)
-    if action == "agent" and not capabilities["supports_agent_mode"]:
-        await update.message.reply_text("❌ Agent mode requires a tmux-backed session. Use /newtmux or /attachtmux.")
-        return
-
-    _set_session_mode(user_id, session_id, action)
-    await update.message.reply_text(f"Mode set to {action} for {session_id}")
+    await update.message.reply_text(_run_mode_action(user_id, session_id, context.args[0].lower()))
 
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1093,6 +1449,54 @@ async def handle_feature_picker(update: Update, context: ContextTypes.DEFAULT_TY
     await query.edit_message_text(response)
 
 
+async def handle_command_picker(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle inline button picks for command argument shortcuts."""
+    query = update.callback_query
+    user_id = update.effective_user.id
+
+    if not is_telegram_user_allowed(user_id):
+        await query.answer("❌ Unauthorized", show_alert=True)
+        return
+
+    await query.answer()
+
+    payload = query.data.removeprefix(COMMAND_PICKER_CALLBACK_PREFIX)
+    parts = payload.split(":", 2)
+    command_name = parts[0] if parts else ""
+    session_id = parts[1] if len(parts) > 1 else _get_current_session_id(user_id)
+    action = parts[2] if len(parts) > 2 else ""
+
+    if action == "cancel":
+        await query.edit_message_text("Command action cancelled")
+        return
+
+    if command_name == "mode":
+        await query.edit_message_text(_run_mode_action(user_id, session_id, action))
+        return
+
+    if command_name == "key":
+        try:
+            _require_session_manager().send_special_key(session_id, action)
+        except Exception as e:
+            await query.edit_message_text(f"❌ Error: {str(e)}")
+            return
+
+        await _edit_query_with_current_screen(query, session_id, fallback_text=f"Sent key {action}")
+        return
+
+    if command_name == "watch":
+        try:
+            response = _run_watch_action(user_id, session_id, action)
+        except Exception as e:
+            await query.edit_message_text(f"❌ Error: {str(e)}")
+            return
+
+        await query.edit_message_text(response)
+        return
+
+    await query.edit_message_text("Unknown command action")
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle regular messages (commands)"""
     user_id = update.effective_user.id
@@ -1115,10 +1519,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             "newtmux": newtmux_command,
             "detach": detach_command,
             "repeat": repeat_command,
+            "screen": screen_command,
+            "watch": watch_command,
             "snapshot": snapshot_command,
             "tail": tail_command,
             "send": send_command,
             "key": key_command,
+            "continue": continue_command,
+            "interrupt": interrupt_command,
             "features": features_command,
             "mode": mode_command,
             "status": status_command,
@@ -1141,7 +1549,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             manager = _require_session_manager()
             await manager.send_exact_input(session_id, command)
             manager.send_special_key(session_id, "enter")
-            await update.message.reply_text("Sent to agent session")
+            await _reply_with_current_screen(update, session_id, fallback_text="Sent to agent session")
             logger.info(f"User {user_id} sent agent-mode text to session {session_id}: {command[:50]}...")
             return
 
@@ -1178,6 +1586,7 @@ async def main(shared_session_manager: SessionManager | None = None):
     # Initialize session manager
     logger.info("Creating session manager...")
     set_session_manager(shared_session_manager or SessionManager())
+    watch_task = None
 
     # Create bot application
     logger.info("Building Telegram application...")
@@ -1195,10 +1604,14 @@ async def main(shared_session_manager: SessionManager | None = None):
     app.add_handler(CommandHandler("newtmux", newtmux_command))
     app.add_handler(CommandHandler("detach", detach_command))
     app.add_handler(CommandHandler("repeat", repeat_command))
+    app.add_handler(CommandHandler("screen", screen_command))
+    app.add_handler(CommandHandler("watch", watch_command))
     app.add_handler(CommandHandler("snapshot", snapshot_command))
     app.add_handler(CommandHandler("tail", tail_command))
     app.add_handler(CommandHandler("send", send_command))
     app.add_handler(CommandHandler("key", key_command))
+    app.add_handler(CommandHandler("continue", continue_command))
+    app.add_handler(CommandHandler("interrupt", interrupt_command))
     app.add_handler(CommandHandler("features", features_command))
     app.add_handler(CommandHandler("mode", mode_command))
     app.add_handler(CommandHandler("status", status_command))
@@ -1207,6 +1620,7 @@ async def main(shared_session_manager: SessionManager | None = None):
     app.add_handler(CallbackQueryHandler(handle_session_picker, pattern=rf"^{SESSION_PICKER_CALLBACK_PREFIX}"))
     app.add_handler(CallbackQueryHandler(handle_feature_picker, pattern=rf"^{FEATURE_PICKER_CALLBACK_PREFIX}"))
     app.add_handler(CallbackQueryHandler(handle_agent_mode_picker, pattern=rf"^{AGENT_MODE_CALLBACK_PREFIX}"))
+    app.add_handler(CallbackQueryHandler(handle_command_picker, pattern=rf"^{COMMAND_PICKER_CALLBACK_PREFIX}"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     logger.info("Starting Telegram bot application...")
@@ -1220,6 +1634,7 @@ async def main(shared_session_manager: SessionManager | None = None):
         logger.warning("Failed to register Telegram slash commands: %s", e)
     logger.info("Starting bot...")
     await app.start()
+    watch_task = asyncio.create_task(_screen_watch_loop(app.bot), name="telegram-screen-watch")
     
     if Config.TELEGRAM_WEBHOOK_URL:
         # Webhook mode
@@ -1255,6 +1670,9 @@ async def main(shared_session_manager: SessionManager | None = None):
     except (KeyboardInterrupt, SystemExit):
         logger.info("Bot interrupted, shutting down...")
     finally:
+        if watch_task:
+            watch_task.cancel()
+            await asyncio.gather(watch_task, return_exceptions=True)
         if app.updater:
             await app.updater.stop()
         if owns_session_manager and session_manager:

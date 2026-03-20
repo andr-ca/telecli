@@ -5,6 +5,7 @@ import pexpect
 import logging
 import asyncio
 import re
+import secrets
 import shutil
 from typing import Optional, AsyncIterator
 from src.config import Config
@@ -184,6 +185,22 @@ class TerminalSession:
         except Exception as e:
             logger.error(f"Error sending input to session {self.session_id}: {e}")
             raise RuntimeError(f"Failed to send input: {str(e)}")
+
+    async def send_command(self, command: str, timeout: float = 5.0) -> str:
+        """Run a shell command and return the incremental output."""
+        marker = f"__telecli_done_{secrets.token_hex(8)}__"
+        history_start = len(self._history)
+        await self.send_input(f"{command}; printf '\\n{marker}\\n'")
+
+        loop = asyncio.get_event_loop()
+        deadline = loop.time() + timeout
+        while loop.time() < deadline:
+            output = ''.join(self._history[history_start:])
+            if marker in output:
+                return output.split(marker, 1)[0]
+            await asyncio.sleep(0.01)
+
+        raise TimeoutError(f"Command did not complete within {timeout} seconds")
 
     async def stop(self) -> None:
         """Stop the terminal session and cleanup"""

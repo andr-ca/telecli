@@ -19,6 +19,7 @@ from src.llm_providers import *  # Register all providers
 from src.terminal import TerminalSession, TmuxSession
 from src.tmux import (
     capture_tmux_pane,
+    capture_tmux_screen,
     create_tmux_session,
     get_tmux_interaction_recommendation,
     list_tmux_sessions,
@@ -51,9 +52,12 @@ class SessionManager:
         self,
         max_sessions: int = Config.TERMINAL_MAX_SESSIONS,
         registry_path: Optional[Path] = None,
+        user_id: Optional[str] = None,
     ):
         self.max_sessions = max_sessions
         self.registry_path = Path(registry_path) if registry_path else Path(Config.SESSION_REGISTRY_PATH)
+        self.user_id = user_id
+        self.default_session_id = user_id or "default"
         self.sessions: dict[str, TerminalSession | TmuxSession] = {}
         self.session_records: dict[str, SessionRecord] = {}
         self.session_count = 0
@@ -61,6 +65,11 @@ class SessionManager:
         self.claude_code_auto_controllers: dict[str, ClaudeCodeAutoContinue] = {}
         self.monitor_callback = None
         self._load_persisted_tmux_records()
+
+    @property
+    def ai_proxy(self) -> Optional[AIProxy]:
+        """Backward-compatible accessor for the default session AI proxy."""
+        return self.ai_proxies.get(self.default_session_id)
 
     def _load_persisted_tmux_records(self) -> None:
         if not self.registry_path.exists():
@@ -403,6 +412,14 @@ class SessionManager:
 
         return capture_tmux_pane(record.tmux_session_name, lines=lines)
 
+    def capture_session_screen(self, session_id: str) -> str:
+        """Capture the currently visible pane for tmux-backed sessions."""
+        record = self._resolve_record(session_id)
+        if record.backend != "tmux" or not record.tmux_session_name:
+            raise ValueError("Agent mode requires a tmux-backed session")
+
+        return capture_tmux_screen(record.tmux_session_name)
+
     def tail_session_output(self, session_id: str, *, lines: int = 20) -> str:
         """Return the last N lines from a tmux pane snapshot."""
         snapshot = self.capture_session_snapshot(session_id, lines=max(lines, 80))
@@ -422,15 +439,17 @@ class SessionManager:
 
     async def enable_ai_proxy(
         self,
-        session_id: str,
+        session_id: Optional[str] = None,
         provider_name: Optional[str] = None,
         system_prompt: Optional[str] = None,
+        primary_provider: Optional[str] = None,
     ) -> bool:
         """Enable AI proxy for a session."""
+        session_id = session_id or self.default_session_id
         if session_id not in self.session_records and session_id not in self.sessions:
             self._ensure_record(session_id, backend="telecli")
 
-        provider_name = provider_name or Config.AI_PROXY_PROVIDER
+        provider_name = provider_name or primary_provider or Config.AI_PROXY_PROVIDER
         llm_provider = LLMProviderFactory.create(provider_name)
         if not llm_provider:
             logger.error("Failed to create LLM provider: %s", provider_name)

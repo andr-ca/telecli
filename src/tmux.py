@@ -18,7 +18,11 @@ _SPECIAL_KEYS = {
     "tab": "Tab",
     "up": "Up",
     "down": "Down",
+    "left": "Left",
+    "right": "Right",
+    "backspace": "BSpace",
     "ctrl-c": "C-c",
+    "ctrl-d": "C-d",
 }
 
 
@@ -103,7 +107,13 @@ def get_tmux_pane_state(session_name: str) -> dict:
 
 def capture_tmux_pane(session_name: str, *, lines: int = 80) -> str:
     """Capture pane contents from a tmux session."""
-    result = _run_tmux_command(["capture-pane", "-pt", session_name, "-S", f"-{lines}", "-e"])
+    result = _run_tmux_command(["capture-pane", "-pt", session_name, "-S", f"-{lines}", "-p"])
+    return result.stdout
+
+
+def capture_tmux_screen(session_name: str) -> str:
+    """Capture only the currently visible tmux pane contents."""
+    result = _run_tmux_command(["capture-pane", "-pt", session_name, "-p"])
     return result.stdout
 
 

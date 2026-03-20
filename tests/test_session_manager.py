@@ -331,6 +331,25 @@ def test_session_manager_captures_and_tails_tmux_session_output(tmp_path, monkey
     assert tail == "line 3\nline 4"
 
 
+def test_session_manager_captures_visible_tmux_screen(tmp_path, monkeypatch):
+    """Screen capture should delegate to the tmux visible-pane helper."""
+    manager = SessionManager(registry_path=tmp_path / "tmux-session-registry.json")
+    manager._ensure_record(  # noqa: SLF001 - exercising manager state directly
+        "tmux-session-1",
+        backend="tmux",
+        name="Ops Shell",
+        tmux_session_name="ops-shell",
+    )
+    monkeypatch.setattr(
+        "src.session_manager.capture_tmux_screen",
+        lambda name: "screen line 1\nscreen line 2\n",
+    )
+
+    screen = manager.capture_session_screen("tmux-session-1")
+
+    assert screen == "screen line 1\nscreen line 2\n"
+
+
 @pytest.mark.asyncio
 async def test_session_manager_send_exact_input_uses_non_newline_send(monkeypatch):
     """Exact input should preserve raw text by disabling newline insertion."""

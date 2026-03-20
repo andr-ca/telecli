@@ -32,18 +32,42 @@ def test_get_tmux_pane_state_parses_foreground_command(monkeypatch):
 
 
 def test_capture_tmux_pane_returns_text(monkeypatch):
+    calls = []
+
+    def fake_run(*args, **kwargs):
+        calls.append(args[0])
+        return _completed("line 1\nline 2\n")
+
     monkeypatch.setattr(
         tmux.shutil,
         "which",
         lambda name: "/usr/bin/tmux",
     )
-    monkeypatch.setattr(
-        tmux.subprocess,
-        "run",
-        lambda *args, **kwargs: _completed("line 1\nline 2\n"),
-    )
+    monkeypatch.setattr(tmux.subprocess, "run", fake_run)
 
     assert tmux.capture_tmux_pane("dev-shell", lines=20) == "line 1\nline 2\n"
+    assert "-p" in calls[0]
+    assert "-e" not in calls[0]
+    assert "-S" in calls[0]
+
+
+def test_capture_tmux_screen_returns_visible_text(monkeypatch):
+    calls = []
+
+    def fake_run(*args, **kwargs):
+        calls.append(args[0])
+        return _completed("visible line 1\nvisible line 2\n")
+
+    monkeypatch.setattr(
+        tmux.shutil,
+        "which",
+        lambda name: "/usr/bin/tmux",
+    )
+    monkeypatch.setattr(tmux.subprocess, "run", fake_run)
+
+    assert tmux.capture_tmux_screen("dev-shell") == "visible line 1\nvisible line 2\n"
+    assert "-S" not in calls[0]
+    assert calls[0][-1] == "-p"
 
 
 def test_get_tmux_interaction_recommendation_reports_signature_and_interactivity(monkeypatch):
@@ -97,6 +121,34 @@ def test_send_tmux_key_maps_common_aliases(monkeypatch):
     tmux.send_tmux_key("dev-shell", "ctrl-c")
 
     assert calls[0][-3:] == ["-t", "dev-shell", "C-c"]
+
+
+@pytest.mark.parametrize(
+    ("key_name", "expected"),
+    [
+        ("left", "Left"),
+        ("right", "Right"),
+        ("backspace", "BSpace"),
+        ("ctrl-d", "C-d"),
+    ],
+)
+def test_send_tmux_key_maps_extended_aliases(monkeypatch, key_name, expected):
+    calls = []
+
+    def fake_run(args, **kwargs):
+        calls.append(args)
+        return _completed()
+
+    monkeypatch.setattr(
+        tmux.shutil,
+        "which",
+        lambda name: "/usr/bin/tmux",
+    )
+    monkeypatch.setattr(tmux.subprocess, "run", fake_run)
+
+    tmux.send_tmux_key("dev-shell", key_name)
+
+    assert calls[0][-3:] == ["-t", "dev-shell", expected]
 
 
 def test_send_tmux_key_rejects_unknown_keys():

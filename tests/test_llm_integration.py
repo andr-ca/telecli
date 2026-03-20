@@ -355,6 +355,24 @@ class TestAIProxyIntegration:
         
         assert proxy.primary_provider_name == "gemini-cli"
         assert proxy.fallback_provider_names == fallbacks
+
+    async def test_proxy_accepts_legacy_provider_kwargs(self):
+        """Test proxy accepts legacy primary/fallback provider kwargs."""
+        primary = MockGeminiProvider()
+        fallbacks = ["github-cli", "claude-cli"]
+
+        with patch.object(LLMProviderFactory, "create", return_value=primary) as mock_create:
+            proxy = AIProxy(
+                primary_provider="gemini-cli",
+                fallback_providers=fallbacks,
+            )
+
+        mock_create.assert_called_once_with("gemini-cli")
+        assert proxy.llm_provider is primary
+        assert proxy.primary_provider == "gemini-cli"
+        assert proxy.primary_provider_name == "gemini-cli"
+        assert proxy.fallback_providers == fallbacks
+        assert proxy.fallback_provider_names == fallbacks
     
     async def test_proxy_output_buffer_management(self):
         """Test proxy output buffer management"""
