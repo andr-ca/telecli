@@ -295,6 +295,43 @@ def _resolve_known_session(manager: SessionManager, selector: str) -> dict | Non
     return None
 
 
+def _render_machine_tmux_session_line(session: dict) -> str:
+    details = [
+        f"windows={session['windows']}",
+        f"attached={'yes' if session['attached'] else 'no'}",
+        f"imported={'yes' if session.get('imported') else 'no'}",
+    ]
+    if session.get("imported") and session.get("imported_name"):
+        imported_session_id = session.get("imported_session_id")
+        imported_label = session["imported_name"]
+        if imported_session_id:
+            imported_label = f"{imported_label} [{imported_session_id}]"
+        details.append(f"telecli={imported_label}")
+    return f"- {session['name']} ({', '.join(details)})"
+
+
+def _render_machine_tmux_inventory(manager: SessionManager, *, heading: str) -> list[str]:
+    if not hasattr(manager, "list_machine_tmux_sessions"):
+        return []
+
+    machine_tmux_sessions = manager.list_machine_tmux_sessions()
+    if not machine_tmux_sessions:
+        return [heading, "- none detected"]
+
+    return [heading, *[_render_machine_tmux_session_line(session) for session in machine_tmux_sessions]]
+
+
+def _render_attachtmux_help(manager: SessionManager, *, error_message: str | None = None) -> str:
+    lines = []
+    if error_message:
+        lines.append(error_message)
+        lines.append("")
+    lines.append("Usage: /attachtmux <tmux-name> [alias]")
+    lines.append("")
+    lines.extend(_render_machine_tmux_inventory(manager, heading="Available machine tmux sessions:"))
+    return "\n".join(lines)
+
+
 def _render_session_inventory(user_id: int) -> str:
     state = _get_user_sessions(user_id)
     manager = _require_session_manager()
@@ -316,21 +353,9 @@ def _render_session_inventory(user_id: int) -> str:
             details.append(f"tmux={session['tmux_session_name']}")
         lines.append(" ".join(details))
 
-    if hasattr(manager, "list_machine_tmux_sessions"):
-        machine_tmux_sessions = manager.list_machine_tmux_sessions()
-        if machine_tmux_sessions:
-            lines.extend(["", "Machine tmux sessions:"])
-            for session in machine_tmux_sessions:
-                line = (
-                    f"- {session['name']} "
-                    f"(windows={session['windows']}, "
-                    f"attached={'yes' if session['attached'] else 'no'}, "
-                    f"imported={'yes' if session.get('imported') else 'no'}"
-                )
-                if session.get("imported") and session.get("imported_name"):
-                    line += f", imported as {session['imported_name']}"
-                line += ")"
-                lines.append(line)
+    machine_tmux_lines = _render_machine_tmux_inventory(manager, heading="Machine tmux sessions:")
+    if machine_tmux_lines:
+        lines.extend(["", *machine_tmux_lines])
 
     return "\n".join(lines)
 
@@ -940,8 +965,9 @@ async def attachtmux_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not is_telegram_user_allowed(user_id):
         await update.message.reply_text("❌ Unauthorized")
         return
+    manager = _require_session_manager()
     if not context.args:
-        await update.message.reply_text("Usage: /attachtmux <tmux-name> [alias]")
+        await update.message.reply_text(_render_attachtmux_help(manager))
         return
 
     tmux_name = context.args[0].strip()
@@ -949,14 +975,19 @@ async def attachtmux_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     state = _get_user_sessions(user_id)
 
     try:
-        session = _require_session_manager().import_tmux_session(tmux_name, name=alias_hint)
+        session = manager.import_tmux_session(tmux_name, name=alias_hint)
         alias = _allocate_alias(state, session["id"], preferred_alias=alias_hint or session["name"])
         state.current_alias = alias
         await update.message.reply_text(
             f"Attached tmux session '{tmux_name}' as '{alias}' ({session['id']})"
         )
     except Exception as e:
-        await update.message.reply_text(f"❌ Error attaching tmux session: {str(e)}")
+        await update.message.reply_text(
+            _render_attachtmux_help(
+                manager,
+                error_message=f"❌ Error attaching tmux session: {str(e)}",
+            )
+        )
 
 
 async def newtmux_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

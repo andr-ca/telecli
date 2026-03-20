@@ -1473,6 +1473,42 @@ async def test_sessions_command_lists_aliases_known_sessions_and_machine_tmux(mo
 
 
 @pytest.mark.asyncio
+async def test_attachtmux_command_without_args_lists_machine_tmux_sessions(monkeypatch):
+    """Attach usage should include machine tmux inventory so users can pick a session."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+
+    update = FakeUpdate(777, "/attachtmux")
+    await telegram_bot.attachtmux_command(update, SimpleNamespace(args=[]))
+
+    rendered = update.message.replies[0][0]
+    assert "Usage: /attachtmux <tmux-name> [alias]" in rendered
+    assert "Available machine tmux sessions:" in rendered
+    assert "- ops-shell (windows=2, attached=no, imported=no)" in rendered
+    assert "- dev-shell (windows=1, attached=yes, imported=no)" in rendered
+
+
+@pytest.mark.asyncio
+async def test_attachtmux_command_unknown_name_lists_machine_tmux_sessions(monkeypatch):
+    """Attach failures should show the available machine tmux sessions for retry."""
+    manager = FakeSessionManager()
+    monkeypatch.setattr(telegram_bot, "session_manager", manager)
+
+    def raise_missing(tmux_session_name: str, name: str | None = None):
+        raise KeyError(f"tmux session {tmux_session_name} does not exist")
+
+    manager.import_tmux_session = raise_missing
+
+    update = FakeUpdate(777, "/attachtmux missing-shell")
+    await telegram_bot.attachtmux_command(update, SimpleNamespace(args=["missing-shell"]))
+
+    rendered = update.message.replies[0][0]
+    assert "❌ Error attaching tmux session: 'tmux session missing-shell does not exist'" in rendered
+    assert "Available machine tmux sessions:" in rendered
+    assert "- ops-shell (windows=2, attached=no, imported=no)" in rendered
+
+
+@pytest.mark.asyncio
 async def test_tmux_commands_attach_create_and_detach_current_session(monkeypatch):
     """Telegram should support importing, creating, and detaching tmux-backed sessions."""
     manager = FakeSessionManager()
