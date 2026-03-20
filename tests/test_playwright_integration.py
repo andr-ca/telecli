@@ -895,6 +895,13 @@ def test_session_picker_creates_named_sessions_and_imports_tmux_entries(browser)
     sessions_text = page.locator("#sessions-list").text_content().lower()
     assert "primary dev" in sessions_text
 
+    page.click("#attach-tmux-btn")
+    page.wait_for_selector("#tmux-picker-modal", state="visible")
+    assert (
+        page.locator("button[data-action='import-tmux-session'][data-tmux-session-name='ops']").text_content()
+        == "Open existing"
+    )
+
 
 def test_tmux_picker_prompts_for_session_name_on_attach(browser):
     """Attaching a tmux session should prompt for the imported TeleCLI session name."""

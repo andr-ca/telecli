@@ -1212,7 +1212,7 @@
                 ? `<div class="session-item-note">Active pane: ${activePaneParts.join(' · ')}</div>`
                 : '';
             const windowsLabel = `${session.windows} window${session.windows === 1 ? '' : 's'}`;
-            const attachLabel = session.imported ? 'Open' : 'Attach';
+            const attachLabel = session.imported ? 'Open existing' : 'Attach as...';
             const attachState = session.attached ? 'Attached elsewhere' : 'Detached';
             const tmuxSessionArg = encodeURIComponent(session.name);
             const tmuxSessionAttr = escapeHtml(session.name);
