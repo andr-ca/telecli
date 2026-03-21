@@ -80,6 +80,87 @@ def test_websocket_resize_message(client, client_id):
         assert websocket is not None
 
 
+def test_websocket_sends_tmux_screen_snapshot_on_connect(client, client_id, monkeypatch):
+    """Tmux-backed sessions should receive the visible pane snapshot immediately on connect."""
+
+    class FakeSessionManager:
+        def get_ai_proxy(self, _session_id):
+            return None
+
+        def get_claude_code_auto_continue(self, _session_id):
+            return None
+
+        def get_session_mode_capabilities(self, _session_id):
+            return {
+                "backend": "tmux",
+                "supports_agent_mode": True,
+                "tmux_session_name": "ops-shell",
+            }
+
+        def capture_session_screen(self, _session_id):
+            return "top line\nbottom line\n"
+
+        async def get_output_stream(self, _session_id):
+            await asyncio.sleep(0)
+            yield "live output\n"
+
+        async def close_all(self):
+            return None
+
+    monkeypatch.setattr(web_app, "session_manager", FakeSessionManager())
+
+    with client.websocket_connect(f"/ws/{client_id}") as websocket:
+        response = receive_json_until(
+            websocket,
+            "output",
+        )
+
+    assert response["output"] == "top line\nbottom line\n"
+
+
+def test_websocket_passes_initial_terminal_size_to_output_stream(client, client_id, monkeypatch):
+    """WebSocket connect should forward the fitted terminal size before tmux output starts."""
+    observed = {}
+
+    class FakeSessionManager:
+        def get_ai_proxy(self, _session_id):
+            return None
+
+        def get_claude_code_auto_continue(self, _session_id):
+            return None
+
+        def get_session_mode_capabilities(self, _session_id):
+            return {
+                "backend": "tmux",
+                "supports_agent_mode": True,
+                "tmux_session_name": "ops-shell",
+            }
+
+        def capture_session_screen(self, _session_id):
+            return ""
+
+        async def get_output_stream(self, _session_id, *, rows=None, cols=None):
+            observed["rows"] = rows
+            observed["cols"] = cols
+            await asyncio.sleep(0)
+            if False:
+                yield ""
+
+        async def close_all(self):
+            return None
+
+    monkeypatch.setattr(web_app, "session_manager", FakeSessionManager())
+
+    with client.websocket_connect(f"/ws/{client_id}?rows=49&cols=173") as websocket:
+        receive_json_until(websocket, "proxy_status")
+        wait_for_condition(
+            lambda: observed == {"rows": 49, "cols": 173},
+            "initial websocket terminal size to be forwarded to output startup",
+        )
+
+    assert observed == {"rows": 49, "cols": 173}
+
+
 def test_websocket_invalid_json_handling(client, client_id):
     """Test WebSocket handles invalid JSON gracefully"""
     with client.websocket_connect(f"/ws/{client_id}") as websocket:

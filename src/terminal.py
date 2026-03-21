@@ -12,6 +12,8 @@ from src.config import Config
 
 logger = logging.getLogger(__name__)
 SEND_COMMAND_POLL_INTERVAL_SECONDS = 0.05
+DEFAULT_TERMINAL_ROWS = 24
+DEFAULT_TERMINAL_COLS = 80
 
 
 def _join_output_chunks(chunks: list[str]) -> str:
@@ -31,9 +33,18 @@ CONTROL_CHARS_TO_REMOVE = re.compile(r'[\x07]')  # Only bell (0x07)
 class TerminalSession:
     """Manages a single interactive terminal session with bidirectional streaming"""
 
-    def __init__(self, session_id: str, shell: Optional[str] = None):
+    def __init__(
+        self,
+        session_id: str,
+        shell: Optional[str] = None,
+        *,
+        initial_rows: int = DEFAULT_TERMINAL_ROWS,
+        initial_cols: int = DEFAULT_TERMINAL_COLS,
+    ):
         self.session_id = session_id
         self.shell = shell or Config.TERMINAL_SHELL
+        self.initial_rows = max(1, int(initial_rows))
+        self.initial_cols = max(1, int(initial_cols))
         self.process: Optional[pexpect.spawn] = None
         self.is_active = False
         self._listeners: set[asyncio.Queue] = set()
@@ -104,15 +115,19 @@ class TerminalSession:
     async def start(self) -> bool:
         """Start a terminal session with background output reading"""
         try:
+            rows = self.initial_rows
+            cols = self.initial_cols
+
             # Spawn a shell process
             self.process = pexpect.spawn(
                 self.shell,
                 encoding=Config.TERMINAL_ENCODING,
-                timeout=None  # No timeout for continuous reading
+                timeout=None,  # No timeout for continuous reading
+                dimensions=(rows, cols),
             )
 
             # Set up terminal size for proper rendering
-            self.process.setwinsize(24, 80)
+            self.process.setwinsize(rows, cols)
 
             self.is_active = True
 
@@ -157,8 +172,10 @@ class TerminalSession:
         """Resize the terminal window"""
         if not self.is_active or not self.process:
             return
-        
+
         try:
+            self.initial_rows = max(1, int(rows))
+            self.initial_cols = max(1, int(cols))
             self.process.setwinsize(rows, cols)
             logger.debug(f"Resized terminal {self.session_id} to {rows}x{cols}")
         except Exception as e:
@@ -260,8 +277,20 @@ class TerminalSession:
 class TmuxSession(TerminalSession):
     """Interactive session backed by an existing tmux session."""
 
-    def __init__(self, session_id: str, tmux_session_name: str):
-        super().__init__(session_id=session_id, shell="tmux")
+    def __init__(
+        self,
+        session_id: str,
+        tmux_session_name: str,
+        *,
+        initial_rows: int = DEFAULT_TERMINAL_ROWS,
+        initial_cols: int = DEFAULT_TERMINAL_COLS,
+    ):
+        super().__init__(
+            session_id=session_id,
+            shell="tmux",
+            initial_rows=initial_rows,
+            initial_cols=initial_cols,
+        )
         self.tmux_session_name = tmux_session_name
         self.shell = f"tmux:{tmux_session_name}"
 
@@ -274,13 +303,16 @@ class TmuxSession(TerminalSession):
             return False
 
         try:
+            rows = self.initial_rows
+            cols = self.initial_cols
             self.process = pexpect.spawn(
                 tmux_path,
-                ["attach-session", "-t", self.tmux_session_name],
+                ["attach-session", "-f", "ignore-size", "-t", self.tmux_session_name],
                 encoding=Config.TERMINAL_ENCODING,
                 timeout=None,
+                dimensions=(rows, cols),
             )
-            self.process.setwinsize(24, 80)
+            self.process.setwinsize(rows, cols)
             self.is_active = True
             self.read_task = asyncio.create_task(self._read_loop())
             logger.info(

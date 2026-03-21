@@ -1,8 +1,8 @@
+import asyncio
 """Tests for terminal module"""
 import pytest
-import asyncio
 from src import terminal
-from src.terminal import TerminalSession
+from src.terminal import TerminalSession, TmuxSession
 
 
 @pytest.mark.asyncio
@@ -129,6 +129,36 @@ async def test_terminal_session_send_exact_input_logs_metadata_not_raw_text(capl
 
     assert secret not in caplog.text
     assert "len=" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_tmux_session_start_uses_initial_dimensions(monkeypatch):
+    """tmux-backed sessions should attach using the browser's initial terminal size."""
+    spawned = {}
+
+    class FakeSpawn:
+        def __init__(self, command, args, **kwargs):
+            spawned["command"] = command
+            spawned["args"] = args
+            spawned["kwargs"] = kwargs
+            self.setwinsize_calls = []
+
+        def setwinsize(self, rows: int, cols: int):
+            self.setwinsize_calls.append((rows, cols))
+
+    monkeypatch.setattr(terminal.shutil, "which", lambda name: "/usr/bin/tmux")
+    monkeypatch.setattr(terminal.pexpect, "spawn", FakeSpawn)
+
+    session = TmuxSession("tmux-session-1", "ops-shell", initial_rows=48, initial_cols=160)
+    session._read_loop = lambda: asyncio.sleep(0)  # noqa: SLF001 - replace background loop for deterministic start
+
+    success = await session.start()
+
+    assert success is True
+    assert spawned["command"] == "/usr/bin/tmux"
+    assert spawned["args"] == ["attach-session", "-f", "ignore-size", "-t", "ops-shell"]
+    assert spawned["kwargs"]["dimensions"] == (48, 160)
+    assert session.process.setwinsize_calls == [(48, 160)]
 
 
 # TODO: Add tests for:
