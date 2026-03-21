@@ -4,11 +4,14 @@ WebSocket message models for validation and type safety
 from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field
 
+MIN_TERMINAL_DIMENSION = 1
+MAX_TERMINAL_DIMENSION = 500
+
 
 class ResizePayload(BaseModel):
     """Terminal resize command"""
-    rows: int = Field(default=24, ge=1, le=500)
-    cols: int = Field(default=80, ge=1, le=500)
+    rows: int = Field(default=24, ge=MIN_TERMINAL_DIMENSION, le=MAX_TERMINAL_DIMENSION)
+    cols: int = Field(default=80, ge=MIN_TERMINAL_DIMENSION, le=MAX_TERMINAL_DIMENSION)
 
 
 class ProxyCommand(BaseModel):

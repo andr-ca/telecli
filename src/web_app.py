@@ -14,6 +14,7 @@ from starlette.websockets import WebSocketDisconnect
 from pydantic import BaseModel
 from src.session_manager import SessionManager
 from src.config import Config
+from src.ws_models import MAX_TERMINAL_DIMENSION
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,10 @@ def _parse_positive_int(raw_value: str | None) -> int | None:
     except (TypeError, ValueError):
         return None
 
-    return value if value > 0 else None
+    if value <= 0:
+        return None
+
+    return min(value, MAX_TERMINAL_DIMENSION)
 
 
 def set_session_manager(manager: SessionManager | None, *, managed: bool = False) -> None:

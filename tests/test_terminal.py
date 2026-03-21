@@ -1,5 +1,5 @@
-import asyncio
 """Tests for terminal module"""
+import asyncio
 import pytest
 from src import terminal
 from src.terminal import TerminalSession, TmuxSession
@@ -159,6 +159,28 @@ async def test_tmux_session_start_uses_initial_dimensions(monkeypatch):
     assert spawned["args"] == ["attach-session", "-f", "ignore-size", "-t", "ops-shell"]
     assert spawned["kwargs"]["dimensions"] == (48, 160)
     assert session.process.setwinsize_calls == [(48, 160)]
+
+
+@pytest.mark.asyncio
+async def test_terminal_resize_uses_sanitized_dimensions():
+    """Resize should clamp and pass sanitized dimensions to the PTY."""
+    session = TerminalSession("test-session")
+
+    class FakeProcess:
+        def __init__(self):
+            self.setwinsize_calls = []
+
+        def setwinsize(self, rows: int, cols: int):
+            self.setwinsize_calls.append((rows, cols))
+
+    session.process = FakeProcess()
+    session.is_active = True
+
+    await session.resize("0", "12")
+
+    assert session.initial_rows == 1
+    assert session.initial_cols == 12
+    assert session.process.setwinsize_calls == [(1, 12)]
 
 
 # TODO: Add tests for:

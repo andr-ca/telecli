@@ -176,8 +176,13 @@ class TerminalSession:
         try:
             self.initial_rows = max(1, int(rows))
             self.initial_cols = max(1, int(cols))
-            self.process.setwinsize(rows, cols)
-            logger.debug(f"Resized terminal {self.session_id} to {rows}x{cols}")
+            self.process.setwinsize(self.initial_rows, self.initial_cols)
+            logger.debug(
+                "Resized terminal %s to %sx%s",
+                self.session_id,
+                self.initial_rows,
+                self.initial_cols,
+            )
         except Exception as e:
             logger.error(f"Error resizing terminal {self.session_id}: {e}")
 

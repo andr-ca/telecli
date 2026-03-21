@@ -100,7 +100,7 @@ def test_websocket_sends_tmux_screen_snapshot_on_connect(client, client_id, monk
         def capture_session_screen(self, _session_id):
             return "top line\nbottom line\n"
 
-        async def get_output_stream(self, _session_id):
+        async def get_output_stream(self, _session_id, *, rows=None, cols=None):
             await asyncio.sleep(0)
             yield "live output\n"
 
@@ -159,6 +159,49 @@ def test_websocket_passes_initial_terminal_size_to_output_stream(client, client_
         )
 
     assert observed == {"rows": 49, "cols": 173}
+
+
+def test_websocket_clamps_initial_terminal_size_query_params(client, client_id, monkeypatch):
+    """Initial terminal size from the URL should be capped to the same limit as resize payloads."""
+    observed = {}
+
+    class FakeSessionManager:
+        def get_ai_proxy(self, _session_id):
+            return None
+
+        def get_claude_code_auto_continue(self, _session_id):
+            return None
+
+        def get_session_mode_capabilities(self, _session_id):
+            return {
+                "backend": "tmux",
+                "supports_agent_mode": True,
+                "tmux_session_name": "ops-shell",
+            }
+
+        def capture_session_screen(self, _session_id):
+            return ""
+
+        async def get_output_stream(self, _session_id, *, rows=None, cols=None):
+            observed["rows"] = rows
+            observed["cols"] = cols
+            await asyncio.sleep(0)
+            if False:
+                yield ""
+
+        async def close_all(self):
+            return None
+
+    monkeypatch.setattr(web_app, "session_manager", FakeSessionManager())
+
+    with client.websocket_connect(f"/ws/{client_id}?rows=9999&cols=1234") as websocket:
+        receive_json_until(websocket, "proxy_status")
+        wait_for_condition(
+            lambda: observed == {"rows": 500, "cols": 500},
+            "initial websocket terminal size to be clamped",
+        )
+
+    assert observed == {"rows": 500, "cols": 500}
 
 
 def test_websocket_invalid_json_handling(client, client_id):

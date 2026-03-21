@@ -18,7 +18,12 @@ from src.claude_code_auto_continue import ClaudeCodeAutoContinue
 from src.config import Config
 from src.llm_provider import LLMProviderFactory
 from src.llm_providers import *  # Register all providers
-from src.terminal import TerminalSession, TmuxSession
+from src.terminal import (
+    DEFAULT_TERMINAL_COLS,
+    DEFAULT_TERMINAL_ROWS,
+    TerminalSession,
+    TmuxSession,
+)
 from src.tmux import (
     capture_tmux_pane,
     capture_tmux_screen,
@@ -397,14 +402,14 @@ class SessionManager:
             session = TmuxSession(
                 session_id,
                 record.tmux_session_name,
-                initial_rows=rows or 24,
-                initial_cols=cols or 80,
+                initial_rows=rows if rows is not None else DEFAULT_TERMINAL_ROWS,
+                initial_cols=cols if cols is not None else DEFAULT_TERMINAL_COLS,
             )
         else:
             session = TerminalSession(
                 session_id,
-                initial_rows=rows or 24,
-                initial_cols=cols or 80,
+                initial_rows=rows if rows is not None else DEFAULT_TERMINAL_ROWS,
+                initial_cols=cols if cols is not None else DEFAULT_TERMINAL_COLS,
             )
 
         if not await session.start():
