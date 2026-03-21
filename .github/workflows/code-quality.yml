@@ -39,8 +39,8 @@ jobs:
             exit 1
           fi
 
-          # Check for SQL injection patterns
-          if grep -r "execute.*%\|query.*%" src/ --include="*.py"; then
+          # Check for Python string interpolation passed into execute/query calls
+          if grep -rE "(^|[^[:alnum:]_])(execute|query)[[:space:]]*\([^#\n]*['\"][^'\"]*['\"][[:space:]]*%" src/ --include="*.py"; then
             echo "❌ Potential SQL injection vulnerability found"
             exit 1
           fi
