@@ -329,7 +329,10 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
 
     if capabilities and capabilities.get("backend") == "tmux":
         try:
-            current_screen = session_manager.capture_session_screen(client_id)
+            current_screen = await asyncio.to_thread(
+                session_manager.capture_session_screen,
+                client_id,
+            )
         except Exception as exc:
             logger.debug("Failed to capture tmux screen for %s during connect: %s", client_id, exc)
         else:

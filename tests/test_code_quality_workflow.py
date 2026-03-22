@@ -6,7 +6,7 @@ import subprocess
 
 
 WORKFLOW_PATH = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "code-quality.yml"
-SQL_INJECTION_PATTERN = r"(^|[^[:alnum:]_])(execute|query)[[:space:]]*\([^#\n]*['\"][^'\"]*['\"][[:space:]]*%"
+SQL_INJECTION_PATTERN = r"(^|[^[:alnum:]_])(execute|query)[[:space:]]*\([^#]*['\"][^'\"]*['\"][[:space:]]*%"
 # Adapt the workflow's POSIX-style pattern for Python's `re` engine.
 SQL_INJECTION_PATTERN_PYTHON = (
     SQL_INJECTION_PATTERN.replace("[:alnum:]", "A-Za-z0-9").replace("[:space:]", r"\s")
@@ -66,6 +66,12 @@ def test_read_workflow_uses_utf8_encoding(monkeypatch):
 
     assert workflow == SQL_INJECTION_PATTERN
     assert observed["encoding"] == "utf-8"
+
+
+def test_workflow_sql_injection_pattern_avoids_newline_escape_in_grep_character_class():
+    """The grep regex should stay line-based and avoid `\\n` inside bracket expressions."""
+    assert r"[^#\n]*" not in SQL_INJECTION_PATTERN
+    assert r"[^#]*" in SQL_INJECTION_PATTERN
 
 
 def test_sql_injection_check_ignores_percent_style_logging(tmp_path: Path):

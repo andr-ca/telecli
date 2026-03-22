@@ -40,7 +40,7 @@ jobs:
           fi
 
           # Check for Python string interpolation passed into execute/query calls
-          if grep -rE "(^|[^[:alnum:]_])(execute|query)[[:space:]]*\([^#\n]*['\"][^'\"]*['\"][[:space:]]*%" src/ --include="*.py"; then
+          if grep -rE "(^|[^[:alnum:]_])(execute|query)[[:space:]]*\([^#]*['\"][^'\"]*['\"][[:space:]]*%" src/ --include="*.py"; then
             echo "❌ Potential SQL injection vulnerability found"
             exit 1
           fi
