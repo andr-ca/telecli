@@ -1,25 +1,41 @@
 """Regression tests for the code-quality workflow security grep checks."""
 
 from pathlib import Path
+import re
 import subprocess
 
 
 WORKFLOW_PATH = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "code-quality.yml"
 SQL_INJECTION_PATTERN = r"(^|[^[:alnum:]_])(execute|query)[[:space:]]*\([^#\n]*['\"][^'\"]*['\"][[:space:]]*%"
+# Adapt the workflow's POSIX-style pattern for Python's `re` engine.
+SQL_INJECTION_PATTERN_PYTHON = (
+    SQL_INJECTION_PATTERN.replace("[:alnum:]", "A-Za-z0-9").replace("[:space:]", r"\s")
+)
 
 
 def _run_sql_injection_check(tmp_path: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [
-            "grep",
-            "-rE",
-            SQL_INJECTION_PATTERN,
-            str(tmp_path),
-            "--include=*.py",
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
+    """Pure-Python equivalent of the workflow's recursive grep for SQL injection patterns."""
+    regex = re.compile(SQL_INJECTION_PATTERN_PYTHON, re.MULTILINE)
+    matched_files: list[str] = []
+
+    for path in sorted(tmp_path.rglob("*.py")):
+        try:
+            content = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+
+        if regex.search(content):
+            matched_files.append(str(path))
+
+    stdout = ""
+    if matched_files:
+        stdout = "\n".join(matched_files) + "\n"
+
+    return subprocess.CompletedProcess(
+        args=["python-sql-injection-check", str(tmp_path)],
+        returncode=0 if matched_files else 1,
+        stdout=stdout,
+        stderr="",
     )
 
 
@@ -57,6 +73,23 @@ def test_sql_injection_check_detects_string_interpolation_in_execute(tmp_path: P
     (tmp_path / "unsafe_query.py").write_text(
         'cursor.execute("SELECT * FROM users WHERE name = \'%s\'" % user_input)\n'
     )
+
+    result = _run_sql_injection_check(tmp_path)
+
+    assert result.returncode == 0
+    assert "unsafe_query.py" in result.stdout
+
+
+def test_sql_injection_check_does_not_require_system_grep(tmp_path: Path, monkeypatch):
+    """The helper should stay portable and not depend on an external grep binary."""
+    (tmp_path / "unsafe_query.py").write_text(
+        'cursor.execute("SELECT * FROM users WHERE name = \'%s\'" % user_input)\n'
+    )
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("subprocess.run should not be used")
+
+    monkeypatch.setattr(subprocess, "run", fail_if_called)
 
     result = _run_sql_injection_check(tmp_path)
 
