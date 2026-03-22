@@ -669,6 +669,220 @@ def test_switching_sessions_preserves_visible_terminal_state(browser):
     context.close()
 
 
+def test_switching_sessions_sends_resize_for_reconnected_socket(browser):
+    """Switching sessions should send the current terminal size on the new socket."""
+    context = browser.new_context(viewport={"width": 1440, "height": 960})
+    page = context.new_page()
+    page.add_init_script(
+        """
+        (() => {
+            const trackedSockets = [];
+
+            class TrackingWebSocket {
+                constructor(url) {
+                    this.url = url;
+                    this.readyState = TrackingWebSocket.CONNECTING;
+                    this.sentMessages = [];
+                    trackedSockets.push(this);
+
+                    setTimeout(() => {
+                        this.readyState = TrackingWebSocket.OPEN;
+                        if (this.onopen) {
+                            this.onopen();
+                        }
+                    }, 0);
+                }
+
+                send(payload) {
+                    this.sentMessages.push(JSON.parse(payload));
+                }
+
+                close() {
+                    this.readyState = TrackingWebSocket.CLOSED;
+                    if (this.onclose) {
+                        this.onclose({ code: 1000 });
+                    }
+                }
+            }
+
+            TrackingWebSocket.CONNECTING = 0;
+            TrackingWebSocket.OPEN = 1;
+            TrackingWebSocket.CLOSING = 2;
+            TrackingWebSocket.CLOSED = 3;
+
+            window.__telecliTrackedSockets = trackedSockets;
+            window.WebSocket = TrackingWebSocket;
+        })();
+        """
+    )
+
+    page.goto(BASE_URL, wait_until="load")
+    page.wait_for_function(
+        "() => window.__telecliTrackedSockets.length === 1 && window.__telecliTrackedSockets[0].readyState === WebSocket.OPEN"
+    )
+    page.wait_for_function(
+        "() => document.querySelectorAll('#terminal-container .xterm-rows > div').length > 45"
+    )
+
+    page.evaluate("() => selectSession('tmux-session-test')")
+    page.wait_for_function(
+        "() => window.__telecliTrackedSockets.length === 2 && window.__telecliTrackedSockets[1].readyState === WebSocket.OPEN"
+    )
+
+    sent_messages = page.evaluate("() => window.__telecliTrackedSockets[1].sentMessages")
+
+    assert any(
+        message.get("resize", {}).get("rows", 0) > 45 and message.get("resize", {}).get("cols", 0) > 80
+        for message in sent_messages
+    )
+
+    context.close()
+
+
+def test_initial_output_scrolls_to_latest_visible_line(browser):
+    """The terminal should keep the viewport at the newest line after initial server output."""
+    context = browser.new_context(viewport={"width": 1440, "height": 960})
+    page = context.new_page()
+    page.add_init_script(
+        """
+        (() => {
+            class FakeWebSocket {
+                constructor() {
+                    this.readyState = FakeWebSocket.CONNECTING;
+                    window.__telecliSocket = this;
+                    setTimeout(() => {
+                        this.readyState = FakeWebSocket.OPEN;
+                        if (this.onopen) {
+                            this.onopen();
+                        }
+                    }, 0);
+                }
+
+                send() {}
+
+                close() {
+                    this.readyState = FakeWebSocket.CLOSED;
+                    if (this.onclose) {
+                        this.onclose({ code: 1000 });
+                    }
+                }
+            }
+
+            FakeWebSocket.CONNECTING = 0;
+            FakeWebSocket.OPEN = 1;
+            FakeWebSocket.CLOSING = 2;
+            FakeWebSocket.CLOSED = 3;
+
+            window.WebSocket = FakeWebSocket;
+        })();
+        """
+    )
+
+    page.goto(BASE_URL, wait_until="load")
+    page.wait_for_function(
+        "() => window.__telecliSocket && window.__telecliSocket.readyState === WebSocket.OPEN"
+    )
+    page.wait_for_function(
+        "() => document.querySelectorAll('#terminal-container .xterm-rows > div').length > 45"
+    )
+
+    page.evaluate(
+        """() => {
+            const lineCount = term.rows + 20;
+            const output = Array.from({ length: lineCount }, (_, index) => `line-${index + 1}`).join('\\r\\n') + '\\r\\n';
+            window.__telecliSocket.onmessage({ data: JSON.stringify({ output }) });
+        }"""
+    )
+
+    page.wait_for_function(
+        """() => {
+            const lastLine = `line-${term.rows + 20}`;
+            const start = term.buffer.active.viewportY;
+            const visible = Array.from(
+                { length: term.rows },
+                (_, offset) => term.buffer.active.getLine(start + offset)?.translateToString(true) ?? ''
+            ).join('\\n');
+            return visible.includes(lastLine);
+        }"""
+    )
+
+    context.close()
+
+
+def test_large_output_scrolls_after_buffer_updates(browser):
+    """Explicit auto-scroll should run after the newest line is present in the buffer."""
+    context = browser.new_context(viewport={"width": 1440, "height": 960})
+    page = context.new_page()
+    page.add_init_script(
+        """
+        (() => {
+            class FakeWebSocket {
+                constructor() {
+                    this.readyState = FakeWebSocket.CONNECTING;
+                    window.__telecliSocket = this;
+                    setTimeout(() => {
+                        this.readyState = FakeWebSocket.OPEN;
+                        if (this.onopen) {
+                            this.onopen();
+                        }
+                    }, 0);
+                }
+
+                send() {}
+
+                close() {
+                    this.readyState = FakeWebSocket.CLOSED;
+                    if (this.onclose) {
+                        this.onclose({ code: 1000 });
+                    }
+                }
+            }
+
+            FakeWebSocket.CONNECTING = 0;
+            FakeWebSocket.OPEN = 1;
+            FakeWebSocket.CLOSING = 2;
+            FakeWebSocket.CLOSED = 3;
+
+            window.WebSocket = FakeWebSocket;
+        })();
+        """
+    )
+
+    page.goto(BASE_URL, wait_until="load")
+    page.wait_for_function(
+        "() => window.__telecliSocket && window.__telecliSocket.readyState === WebSocket.OPEN"
+    )
+    page.wait_for_function(
+        "() => document.querySelectorAll('#terminal-container .xterm-rows > div').length > 45"
+    )
+
+    page.evaluate(
+        """() => {
+            const lastLine = `line-${term.rows + 20}`;
+            window.__telecliScrollSawLatest = null;
+            const originalScrollToBottom = term.scrollToBottom.bind(term);
+            term.scrollToBottom = () => {
+                const start = term.buffer.active.viewportY;
+                const visible = Array.from(
+                    { length: term.rows },
+                    (_, offset) => term.buffer.active.getLine(start + offset)?.translateToString(true) ?? ''
+                ).join('\\n');
+                window.__telecliScrollSawLatest = visible.includes(lastLine);
+                return originalScrollToBottom();
+            };
+
+            const output = Array.from({ length: term.rows + 20 }, (_, index) => `line-${index + 1}`).join('\\r\\n') + '\\r\\n';
+            window.__telecliSocket.onmessage({ data: JSON.stringify({ output }) });
+        }"""
+    )
+
+    page.wait_for_function("() => window.__telecliScrollSawLatest !== null")
+
+    assert page.evaluate("() => window.__telecliScrollSawLatest") is True
+
+    context.close()
+
+
 def test_session_picker_creates_named_sessions_and_imports_tmux_entries(browser):
     """The session picker should create named sessions and only show tmux sessions after import."""
     context = browser.new_context()
@@ -1424,5 +1638,40 @@ def test_desktop_terminal_fills_available_height(browser):
     )
 
     assert resized > initial["terminalHeight"] + 100
+
+    context.close()
+
+
+def test_terminal_refits_after_stylesheet_load_without_manual_resize(browser):
+    """The terminal should refit itself after late layout changes during startup."""
+    context = browser.new_context(viewport={"width": 1440, "height": 960})
+    page = context.new_page()
+
+    def delay_main_stylesheet(route):
+        if route.request.url.endswith("/style.css"):
+            time.sleep(1.5)
+        route.continue_()
+
+    page.route("**/style.css", delay_main_stylesheet)
+
+    page.goto(BASE_URL, wait_until="load")
+    page.wait_for_function(
+        "() => document.getElementById('status')?.textContent?.includes('Connected')",
+        timeout=5000,
+    )
+    page.wait_for_function(
+        "() => !!document.getElementById('main-stylesheet')?.sheet",
+        timeout=3000,
+    )
+
+    metrics = page.evaluate(
+        """() => ({
+            rows: document.querySelectorAll('#terminal-container .xterm-rows > div').length,
+            terminalHeight: document.getElementById('terminal-container').getBoundingClientRect().height,
+        })"""
+    )
+
+    assert metrics["terminalHeight"] > 800
+    assert metrics["rows"] > 45
 
     context.close()

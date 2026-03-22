@@ -23,6 +23,30 @@ async def test_session_manager_get_session():
 
 
 @pytest.mark.asyncio
+async def test_session_manager_resizes_existing_session_when_one_dimension_is_missing():
+    """Existing sessions should preserve the other dimension when only one size is supplied."""
+    manager = SessionManager()
+
+    class FakeSession:
+        def __init__(self):
+            self.is_active = True
+            self.initial_rows = 41
+            self.initial_cols = 132
+            self.resize_calls = []
+
+        async def resize(self, rows, cols):
+            self.resize_calls.append((rows, cols))
+
+    session = FakeSession()
+    manager.sessions["test-user"] = session
+
+    same_session = await manager.get_session("test-user", rows=55)
+
+    assert same_session is session
+    assert session.resize_calls == [(55, 132)]
+
+
+@pytest.mark.asyncio
 async def test_session_manager_stats():
     """Test getting statistics"""
     manager = SessionManager()

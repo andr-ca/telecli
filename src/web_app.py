@@ -14,6 +14,7 @@ from starlette.websockets import WebSocketDisconnect
 from pydantic import BaseModel
 from src.session_manager import SessionManager
 from src.config import Config
+from src.ws_models import MAX_TERMINAL_DIMENSION
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,22 @@ _session_manager_managed = False
 # Global LLM monitor data
 llm_monitor_data = []
 MAX_MONITOR_ENTRIES = 100
+
+
+def _parse_positive_int(raw_value: str | None) -> int | None:
+    """Parse a websocket query parameter as a positive integer."""
+    if raw_value is None:
+        return None
+
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError):
+        return None
+
+    if value <= 0:
+        return None
+
+    return min(value, MAX_TERMINAL_DIMENSION)
 
 
 def set_session_manager(manager: SessionManager | None, *, managed: bool = False) -> None:
@@ -257,6 +274,8 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
 
     await websocket.accept()
     logger.info(f"WebSocket connection established for client {client_id}")
+    initial_rows = _parse_positive_int(websocket.query_params.get("rows"))
+    initial_cols = _parse_positive_int(websocket.query_params.get("cols"))
 
     connection_active = True
     send_lock = asyncio.Lock()
@@ -301,6 +320,24 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
     else:
         if not await safe_send_json({"claude_code_status": {"enabled": False}}):
             return
+
+    try:
+        capabilities = session_manager.get_session_mode_capabilities(client_id)
+    except Exception:
+        logger.warning("Failed to get session mode capabilities for client %s", client_id, exc_info=True)
+        capabilities = None
+
+    if capabilities and capabilities.get("backend") == "tmux":
+        try:
+            current_screen = await asyncio.to_thread(
+                session_manager.capture_session_screen,
+                client_id,
+            )
+        except Exception as exc:
+            logger.debug("Failed to capture tmux screen for %s during connect: %s", client_id, exc)
+        else:
+            if current_screen and not await safe_send_json({"output": current_screen}):
+                return
 
     async def handle_input():
         nonlocal connection_active
@@ -368,7 +405,11 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
     async def handle_output():
         nonlocal connection_active
         try:
-            async for chunk in session_manager.get_output_stream(client_id):
+            async for chunk in session_manager.get_output_stream(
+                client_id,
+                rows=initial_rows,
+                cols=initial_cols,
+            ):
                 if not connection_active:
                     break
                 if chunk:

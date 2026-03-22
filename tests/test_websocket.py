@@ -5,6 +5,7 @@ Tests the WebSocket endpoint using TestClient
 import asyncio
 import contextlib
 import json
+import logging
 import time
 from datetime import datetime, timedelta
 
@@ -78,6 +79,211 @@ def test_websocket_resize_message(client, client_id):
         websocket.send_text(json.dumps(message))
         # Should handle without error
         assert websocket is not None
+
+
+def test_websocket_sends_tmux_screen_snapshot_on_connect(client, client_id, monkeypatch):
+    """Tmux-backed sessions should receive the visible pane snapshot immediately on connect."""
+
+    class FakeSessionManager:
+        def get_ai_proxy(self, _session_id):
+            return None
+
+        def get_claude_code_auto_continue(self, _session_id):
+            return None
+
+        def get_session_mode_capabilities(self, _session_id):
+            return {
+                "backend": "tmux",
+                "supports_agent_mode": True,
+                "tmux_session_name": "ops-shell",
+            }
+
+        def capture_session_screen(self, _session_id):
+            return "top line\nbottom line\n"
+
+        async def get_output_stream(self, _session_id, *, rows=None, cols=None):
+            await asyncio.sleep(0)
+            yield "live output\n"
+
+        async def close_all(self):
+            return None
+
+    monkeypatch.setattr(web_app, "session_manager", FakeSessionManager())
+
+    with client.websocket_connect(f"/ws/{client_id}") as websocket:
+        response = receive_json_until(
+            websocket,
+            "output",
+        )
+
+    assert response["output"] == "top line\nbottom line\n"
+
+
+def test_websocket_passes_initial_terminal_size_to_output_stream(client, client_id, monkeypatch):
+    """WebSocket connect should forward the fitted terminal size before tmux output starts."""
+    observed = {}
+
+    class FakeSessionManager:
+        def get_ai_proxy(self, _session_id):
+            return None
+
+        def get_claude_code_auto_continue(self, _session_id):
+            return None
+
+        def get_session_mode_capabilities(self, _session_id):
+            return {
+                "backend": "tmux",
+                "supports_agent_mode": True,
+                "tmux_session_name": "ops-shell",
+            }
+
+        def capture_session_screen(self, _session_id):
+            return ""
+
+        async def get_output_stream(self, _session_id, *, rows=None, cols=None):
+            observed["rows"] = rows
+            observed["cols"] = cols
+            await asyncio.sleep(0)
+            if False:
+                yield ""
+
+        async def close_all(self):
+            return None
+
+    monkeypatch.setattr(web_app, "session_manager", FakeSessionManager())
+
+    with client.websocket_connect(f"/ws/{client_id}?rows=49&cols=173") as websocket:
+        receive_json_until(websocket, "proxy_status")
+        wait_for_condition(
+            lambda: observed == {"rows": 49, "cols": 173},
+            "initial websocket terminal size to be forwarded to output startup",
+        )
+
+    assert observed == {"rows": 49, "cols": 173}
+
+
+def test_websocket_clamps_initial_terminal_size_query_params(client, client_id, monkeypatch):
+    """Initial terminal size from the URL should be capped to the same limit as resize payloads."""
+    observed = {}
+
+    class FakeSessionManager:
+        def get_ai_proxy(self, _session_id):
+            return None
+
+        def get_claude_code_auto_continue(self, _session_id):
+            return None
+
+        def get_session_mode_capabilities(self, _session_id):
+            return {
+                "backend": "tmux",
+                "supports_agent_mode": True,
+                "tmux_session_name": "ops-shell",
+            }
+
+        def capture_session_screen(self, _session_id):
+            return ""
+
+        async def get_output_stream(self, _session_id, *, rows=None, cols=None):
+            observed["rows"] = rows
+            observed["cols"] = cols
+            await asyncio.sleep(0)
+            if False:
+                yield ""
+
+        async def close_all(self):
+            return None
+
+    monkeypatch.setattr(web_app, "session_manager", FakeSessionManager())
+
+    with client.websocket_connect(f"/ws/{client_id}?rows=9999&cols=1234") as websocket:
+        receive_json_until(websocket, "proxy_status")
+        wait_for_condition(
+            lambda: observed == {"rows": 500, "cols": 500},
+            "initial websocket terminal size to be clamped",
+        )
+
+    assert observed == {"rows": 500, "cols": 500}
+
+
+def test_websocket_logs_capability_lookup_failures(client, client_id, monkeypatch, caplog):
+    """Capability lookup failures should be logged before the websocket falls back."""
+
+    class FakeSessionManager:
+        def get_ai_proxy(self, _session_id):
+            return None
+
+        def get_claude_code_auto_continue(self, _session_id):
+            return None
+
+        def get_session_mode_capabilities(self, _session_id):
+            raise RuntimeError("capability probe failed")
+
+        async def get_output_stream(self, _session_id, *, rows=None, cols=None):
+            await asyncio.sleep(0)
+            if False:
+                yield ""
+
+        async def close_all(self):
+            return None
+
+    monkeypatch.setattr(web_app, "session_manager", FakeSessionManager())
+
+    with caplog.at_level(logging.WARNING, logger="src.web_app"):
+        with client.websocket_connect(f"/ws/{client_id}") as websocket:
+            receive_json_until(websocket, "proxy_status")
+            receive_json_until(websocket, "claude_code_status")
+
+    assert any(
+        "Failed to get session mode capabilities" in record.message
+        for record in caplog.records
+    )
+
+
+def test_websocket_offloads_tmux_screen_capture_to_thread(client, client_id, monkeypatch):
+    """Tmux screen capture during connect should not block the websocket event loop."""
+    calls = []
+
+    class FakeSessionManager:
+        def get_ai_proxy(self, _session_id):
+            return None
+
+        def get_claude_code_auto_continue(self, _session_id):
+            return None
+
+        def get_session_mode_capabilities(self, _session_id):
+            return {
+                "backend": "tmux",
+                "supports_agent_mode": True,
+                "tmux_session_name": "ops-shell",
+            }
+
+        def capture_session_screen(self, _session_id):
+            return ""
+
+        async def get_output_stream(self, _session_id, *, rows=None, cols=None):
+            await asyncio.sleep(0)
+            if False:
+                yield ""
+
+        async def close_all(self):
+            return None
+
+    async def fake_to_thread(func, *args, **kwargs):
+        calls.append((func, args, kwargs))
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(web_app, "session_manager", FakeSessionManager())
+    monkeypatch.setattr(web_app.asyncio, "to_thread", fake_to_thread)
+
+    with client.websocket_connect(f"/ws/{client_id}") as websocket:
+        receive_json_until(websocket, "proxy_status")
+        receive_json_until(websocket, "claude_code_status")
+        wait_for_condition(
+            lambda: len(calls) == 1,
+            "tmux screen capture to be offloaded",
+        )
+
+    assert calls[0][1] == (client_id,)
 
 
 def test_websocket_invalid_json_handling(client, client_id):

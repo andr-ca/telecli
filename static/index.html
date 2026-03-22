@@ -275,12 +275,24 @@
     </div>
 
     <script>
-        // Set CSS path dynamically based on current location
-        (function () {
+        const mainStylesheetReady = (() => {
+            const stylesheet = document.getElementById('main-stylesheet');
             const basePath = window.location.pathname.replace(/\/$/, '');
             const cssPath = basePath ? `${basePath}/style.css` : 'style.css';
-            document.getElementById('main-stylesheet').href = cssPath;
+            const resolvedHref = new URL(cssPath, window.location.href).href;
+
             console.log('CSS path set to:', cssPath);
+
+            if (stylesheet.href === resolvedHref && stylesheet.sheet) {
+                return Promise.resolve();
+            }
+
+            return new Promise((resolve) => {
+                const finish = () => resolve();
+                stylesheet.addEventListener('load', finish, { once: true });
+                stylesheet.addEventListener('error', finish, { once: true });
+                stylesheet.href = cssPath;
+            });
         })();
 
         let clientId = localStorage.getItem('terminal-session-id') || generateNewSessionId();
@@ -1582,6 +1594,20 @@
                 refreshLayout();
             };
 
+            let pendingViewportSync = null;
+            const scheduleViewportSync = () => {
+                if (pendingViewportSync !== null) {
+                    return;
+                }
+
+                pendingViewportSync = requestAnimationFrame(() => {
+                    pendingViewportSync = null;
+                    syncViewportHeight();
+                });
+            };
+
+            syncViewportHeight();
+
             // Ensure terminal fits properly after DOM is ready
             setTimeout(() => {
                 syncViewportHeight();
@@ -1613,6 +1639,14 @@
             if (window.visualViewport) {
                 window.visualViewport.addEventListener('resize', syncViewportHeight);
                 window.visualViewport.addEventListener('scroll', syncViewportHeight);
+            }
+
+            const terminalPanel = document.getElementById('terminal-panel');
+            if (window.ResizeObserver && terminalPanel) {
+                const layoutObserver = new ResizeObserver(() => {
+                    scheduleViewportSync();
+                });
+                layoutObserver.observe(terminalPanel);
             }
         }
 
@@ -1660,8 +1694,15 @@
         async function getWebSocketUrl() {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const basePath = window.location.pathname.replace(/\/$/, ''); // Remove trailing slash
-            const url = `${protocol}//${window.location.host}${basePath}/ws/${clientId}`;
-            console.log('WebSocket URL:', url); // Debug logging
+            const url = new URL(`${protocol}//${window.location.host}${basePath}/ws/${clientId}`);
+            if (term) {
+                if (fitAddon) {
+                    fitAddon.fit();
+                }
+                url.searchParams.set('rows', String(term.rows));
+                url.searchParams.set('cols', String(term.cols));
+            }
+            console.log('WebSocket URL:', url.toString()); // Debug logging
 
             // Check if authentication is required
             try {
@@ -1671,11 +1712,11 @@
                 const authData = await response.json();
 
                 if (!authData.auth_required) {
-                    return url; // No authentication needed
+                    return url.toString(); // No authentication needed
                 }
             } catch (e) {
                 console.debug('Could not check auth requirement, assuming no auth needed');
-                return url;
+                return url.toString();
             }
 
             // Authentication is required, get token
@@ -1688,11 +1729,15 @@
                 } else {
                     // User chose to skip authentication, try without token
                     console.log('Attempting connection without authentication token');
-                    return url;
+                    return url.toString();
                 }
             }
 
-            return token ? `${url}?token=${encodeURIComponent(token)}` : url;
+            if (token) {
+                url.searchParams.set('token', token);
+            }
+
+            return url.toString();
         }
 
         async function connectWebSocket() {
@@ -1715,6 +1760,7 @@
 
                     isConnected = true;
                     updateStatus('Connected', 'success');
+                    sendTerminalSize();
 
                     // Start stale state monitoring when connection is established
                     startStaleStateMonitoring();
@@ -1731,21 +1777,17 @@
                         if (data.output && term) {
                             // Update last output time for stale state detection
                             updateLastOutputTime();
+                            const wasNearBottom = term.buffer.active.viewportY + term.rows >= term.buffer.active.length - 1;
 
-                            // Write output immediately without scroll position checks for better performance
+                            // Keep the viewport anchored to the newest output unless the user has scrolled away.
                             term.write(data.output, () => {
+                                if (wasNearBottom) {
+                                    term.scrollToBottom();
+                                }
                                 if (claudeCodeAutoContinueEnabled) {
                                     scheduleClaudeCodeRenderedScreenCheck();
                                 }
                             });
-
-                            // Only check scroll position for larger chunks to reduce overhead
-                            if (data.output.length > 100) {
-                                const wasAtBottom = term.buffer.active.baseY + term.rows >= term.buffer.active.length;
-                                if (wasAtBottom) {
-                                    term.scrollToBottom();
-                                }
-                            }
                         } else if (data.error) {
                             term.write('\r\n\x1b[31mError: ' + data.error + '\x1b[0m\r\n');
                         } else if (data.proxy_status) {
@@ -2541,9 +2583,11 @@
             closeAllSubmenus();
         }
 
-        // Initialize terminal and connect
-        initTerminal();
-        connectWebSocket();
+        // Initialize terminal and connect after the main stylesheet has applied
+        mainStylesheetReady.finally(() => {
+            initTerminal();
+            connectWebSocket();
+        });
     </script>
 </body>
 

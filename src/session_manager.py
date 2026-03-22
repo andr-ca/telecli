@@ -18,7 +18,12 @@ from src.claude_code_auto_continue import ClaudeCodeAutoContinue
 from src.config import Config
 from src.llm_provider import LLMProviderFactory
 from src.llm_providers import *  # Register all providers
-from src.terminal import TerminalSession, TmuxSession
+from src.terminal import (
+    DEFAULT_TERMINAL_COLS,
+    DEFAULT_TERMINAL_ROWS,
+    TerminalSession,
+    TmuxSession,
+)
 from src.tmux import (
     capture_tmux_pane,
     capture_tmux_screen,
@@ -367,11 +372,23 @@ class SessionManager:
         if record and record.backend == "tmux":
             self._save_persisted_tmux_records()
 
-    async def get_session(self, session_id: str) -> TerminalSession | TmuxSession:
+    async def get_session(
+        self,
+        session_id: str,
+        *,
+        rows: int | None = None,
+        cols: int | None = None,
+    ) -> TerminalSession | TmuxSession:
         """Get or create a session for the given ID."""
         self._prune_runtime_session(session_id)
         if session_id in self.sessions:
-            return self.sessions[session_id]
+            session = self.sessions[session_id]
+            if rows is not None or cols is not None:
+                await session.resize(
+                    rows if rows is not None else getattr(session, "initial_rows", DEFAULT_TERMINAL_ROWS),
+                    cols if cols is not None else getattr(session, "initial_cols", DEFAULT_TERMINAL_COLS),
+                )
+            return session
 
         if len(self.sessions) >= self.max_sessions:
             logger.warning("Max sessions reached, closing oldest active session")
@@ -385,9 +402,18 @@ class SessionManager:
         if record.backend == "tmux":
             if not record.tmux_session_name or not tmux_session_exists(record.tmux_session_name):
                 raise RuntimeError(f"tmux session not available: {record.tmux_session_name}")
-            session = TmuxSession(session_id, record.tmux_session_name)
+            session = TmuxSession(
+                session_id,
+                record.tmux_session_name,
+                initial_rows=rows if rows is not None else DEFAULT_TERMINAL_ROWS,
+                initial_cols=cols if cols is not None else DEFAULT_TERMINAL_COLS,
+            )
         else:
-            session = TerminalSession(session_id)
+            session = TerminalSession(
+                session_id,
+                initial_rows=rows if rows is not None else DEFAULT_TERMINAL_ROWS,
+                initial_cols=cols if cols is not None else DEFAULT_TERMINAL_COLS,
+            )
 
         if not await session.start():
             raise RuntimeError(f"Failed to start session {session_id}")
@@ -434,9 +460,15 @@ class SessionManager:
             await self.sessions[session_id].resize(rows, cols)
             logger.debug("Resized session %s to %sx%s", session_id, rows, cols)
 
-    async def get_output_stream(self, session_id: str):
+    async def get_output_stream(
+        self,
+        session_id: str,
+        *,
+        rows: int | None = None,
+        cols: int | None = None,
+    ):
         """Get output stream from a session."""
-        session = await self.get_session(session_id)
+        session = await self.get_session(session_id, rows=rows, cols=cols)
         async for chunk in session.get_output_stream():
             yield chunk
 
