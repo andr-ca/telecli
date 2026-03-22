@@ -5,6 +5,7 @@ Tests the WebSocket endpoint using TestClient
 import asyncio
 import contextlib
 import json
+import logging
 import time
 from datetime import datetime, timedelta
 
@@ -202,6 +203,40 @@ def test_websocket_clamps_initial_terminal_size_query_params(client, client_id, 
         )
 
     assert observed == {"rows": 500, "cols": 500}
+
+
+def test_websocket_logs_capability_lookup_failures(client, client_id, monkeypatch, caplog):
+    """Capability lookup failures should be logged before the websocket falls back."""
+
+    class FakeSessionManager:
+        def get_ai_proxy(self, _session_id):
+            return None
+
+        def get_claude_code_auto_continue(self, _session_id):
+            return None
+
+        def get_session_mode_capabilities(self, _session_id):
+            raise RuntimeError("capability probe failed")
+
+        async def get_output_stream(self, _session_id, *, rows=None, cols=None):
+            await asyncio.sleep(0)
+            if False:
+                yield ""
+
+        async def close_all(self):
+            return None
+
+    monkeypatch.setattr(web_app, "session_manager", FakeSessionManager())
+
+    with caplog.at_level(logging.WARNING, logger="src.web_app"):
+        with client.websocket_connect(f"/ws/{client_id}") as websocket:
+            receive_json_until(websocket, "proxy_status")
+            receive_json_until(websocket, "claude_code_status")
+
+    assert any(
+        "Failed to get session mode capabilities" in record.message
+        for record in caplog.records
+    )
 
 
 def test_websocket_invalid_json_handling(client, client_id):

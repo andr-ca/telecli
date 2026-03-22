@@ -324,6 +324,7 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
     try:
         capabilities = session_manager.get_session_mode_capabilities(client_id)
     except Exception:
+        logger.warning("Failed to get session mode capabilities for client %s", client_id, exc_info=True)
         capabilities = None
 
     if capabilities and capabilities.get("backend") == "tmux":

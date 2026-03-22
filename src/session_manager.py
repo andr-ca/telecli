@@ -383,8 +383,11 @@ class SessionManager:
         self._prune_runtime_session(session_id)
         if session_id in self.sessions:
             session = self.sessions[session_id]
-            if rows is not None and cols is not None:
-                await session.resize(rows, cols)
+            if rows is not None or cols is not None:
+                await session.resize(
+                    rows if rows is not None else getattr(session, "initial_rows", DEFAULT_TERMINAL_ROWS),
+                    cols if cols is not None else getattr(session, "initial_cols", DEFAULT_TERMINAL_COLS),
+                )
             return session
 
         if len(self.sessions) >= self.max_sessions:

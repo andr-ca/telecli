@@ -13,6 +13,11 @@ SQL_INJECTION_PATTERN_PYTHON = (
 )
 
 
+def _read_workflow() -> str:
+    """Read the workflow file using the repository's declared UTF-8 encoding."""
+    return WORKFLOW_PATH.read_text(encoding="utf-8")
+
+
 def _run_sql_injection_check(tmp_path: Path) -> subprocess.CompletedProcess[str]:
     """Pure-Python equivalent of the workflow's recursive grep for SQL injection patterns."""
     regex = re.compile(SQL_INJECTION_PATTERN_PYTHON, re.MULTILINE)
@@ -41,9 +46,26 @@ def _run_sql_injection_check(tmp_path: Path) -> subprocess.CompletedProcess[str]
 
 def test_workflow_sql_injection_pattern_stays_in_sync():
     """The tested regex should match the workflow's SQL-injection grep."""
-    workflow = WORKFLOW_PATH.read_text()
+    workflow = _read_workflow()
 
     assert SQL_INJECTION_PATTERN in workflow
+
+
+def test_read_workflow_uses_utf8_encoding(monkeypatch):
+    """Workflow reads should pin UTF-8 because the file contains non-ASCII text."""
+    observed = {}
+
+    class FakeWorkflowPath:
+        def read_text(self, *, encoding=None):
+            observed["encoding"] = encoding
+            return SQL_INJECTION_PATTERN
+
+    monkeypatch.setattr("tests.test_code_quality_workflow.WORKFLOW_PATH", FakeWorkflowPath())
+
+    workflow = _read_workflow()
+
+    assert workflow == SQL_INJECTION_PATTERN
+    assert observed["encoding"] == "utf-8"
 
 
 def test_sql_injection_check_ignores_percent_style_logging(tmp_path: Path):
