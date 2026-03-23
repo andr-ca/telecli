@@ -1675,3 +1675,21 @@ def test_terminal_refits_after_stylesheet_load_without_manual_resize(browser):
     assert metrics["rows"] > 45
 
     context.close()
+
+
+def test_terminal_retains_layout_observer_reference(browser):
+    """The layout ResizeObserver should stay reachable after terminal initialization."""
+    context = browser.new_context(viewport={"width": 1440, "height": 960})
+    page = context.new_page()
+
+    page.goto(BASE_URL, wait_until="load")
+    page.wait_for_function(
+        "() => document.getElementById('status')?.textContent?.includes('Connected')",
+        timeout=5000,
+    )
+    page.wait_for_function(
+        "() => typeof layoutObserver !== 'undefined' && layoutObserver !== null",
+        timeout=2000,
+    )
+
+    context.close()

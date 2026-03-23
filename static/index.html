@@ -317,6 +317,7 @@
         let websocketGeneration = 0;
         let sessionMetadataById = {};
         let tmuxSessionMetadataByName = {};
+        let layoutObserver = null;
 
         // Stale state detection
         let lastOutputTime = Date.now();
@@ -1642,8 +1643,12 @@
             }
 
             const terminalPanel = document.getElementById('terminal-panel');
+            if (layoutObserver) {
+                layoutObserver.disconnect();
+                layoutObserver = null;
+            }
             if (window.ResizeObserver && terminalPanel) {
-                const layoutObserver = new ResizeObserver(() => {
+                layoutObserver = new ResizeObserver(() => {
                     scheduleViewportSync();
                 });
                 layoutObserver.observe(terminalPanel);
