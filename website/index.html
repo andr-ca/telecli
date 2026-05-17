@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="TeleCLI is a private browser and Telegram terminal bridge for secure remote command-line access, isolated sessions, and optional AI-assisted workflows.">
+    <meta name="theme-color" content="#050505">
+    <meta property="og:title" content="TeleCLI — Secure terminal access from anywhere">
+    <meta property="og:description" content="A self-hosted terminal control plane for browser, Telegram, and AI-assisted command workflows.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://telecli.org/">
+    <meta property="og:image" content="https://telecli.org/og.svg">
+    <meta name="twitter:card" content="summary_large_image">
+    <link rel="canonical" href="https://telecli.org/">
+    <link rel="stylesheet" href="styles.css">
+    <title>TeleCLI — Secure terminal access from anywhere</title>
+</head>
+
+<body>
+    <div class="site-noise" aria-hidden="true"></div>
+    <div class="orb orb-one" aria-hidden="true"></div>
+    <div class="orb orb-two" aria-hidden="true"></div>
+
+    <header class="nav-shell" data-reveal>
+        <a class="brand" href="#top" aria-label="TeleCLI home">
+            <span class="brand-mark">▣</span>
+            <span>TeleCLI</span>
+        </a>
+        <nav class="desktop-nav" aria-label="Primary navigation">
+            <a href="#platform">Platform</a>
+            <a href="#security">Security</a>
+            <a href="#workflow">Workflow</a>
+            <a href="#deploy">Deploy</a>
+        </nav>
+        <a class="nav-cta" href="https://github.com/andr-ca/telecli" rel="noreferrer" target="_blank">
+            <span>GitHub</span>
+            <span class="button-orb" aria-hidden="true">↗</span>
+        </a>
+        <button class="menu-button" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="mobile-menu">
+            <span></span>
+            <span></span>
+        </button>
+    </header>
+
+    <div class="mobile-menu" id="mobile-menu" aria-hidden="true">
+        <a href="#platform">Platform</a>
+        <a href="#security">Security</a>
+        <a href="#workflow">Workflow</a>
+        <a href="#deploy">Deploy</a>
+    </div>
+
+    <main id="top">
+        <section class="hero section-pad">
+            <div class="hero-copy" data-reveal>
+                <div class="eyebrow">Private terminal relay</div>
+                <h1>Secure command-line access, wherever the work follows you.</h1>
+                <p class="hero-lede">TeleCLI gives teams a self-hosted terminal control plane with browser access, Telegram workflows, isolated sessions, command policy, and optional AI-assisted automation.</p>
+                <div class="hero-actions">
+                    <a class="primary-button" href="https://github.com/andr-ca/telecli" rel="noreferrer" target="_blank">
+                        <span>Deploy TeleCLI</span>
+                        <span class="button-orb" aria-hidden="true">↗</span>
+                    </a>
+                    <a class="secondary-button" href="#platform">Explore platform</a>
+                </div>
+                <div class="trust-row" aria-label="Key platform capabilities">
+                    <span>FastAPI</span>
+                    <span>WebSocket</span>
+                    <span>Telegram</span>
+                    <span>AI proxy</span>
+                </div>
+            </div>
+
+            <div class="hero-device outer-shell" data-reveal>
+                <div class="terminal-card inner-core">
+                    <div class="terminal-topbar">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                        <strong>telecli://session/ops</strong>
+                    </div>
+                    <div class="terminal-body" aria-label="TeleCLI terminal preview">
+                        <p><span class="muted">$</span> telecli connect --session deploy-prod</p>
+                        <p class="line-ok">✓ isolated pexpect session ready</p>
+                        <p><span class="muted">$</span> policy check "systemctl restart api"</p>
+                        <p class="line-warn">↳ approval required from Telegram operator</p>
+                        <p><span class="muted">$</span> ai-proxy summarize last-run.log</p>
+                        <p class="line-ok">✓ incident brief prepared for review</p>
+                        <p class="cursor-line"><span class="muted">$</span> <span class="cursor"></span></p>
+                    </div>
+                    <div class="signal-grid" aria-hidden="true">
+                        <span></span><span></span><span></span><span></span><span></span><span></span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="metric-strip" aria-label="TeleCLI highlights" data-reveal>
+            <div>
+                <strong>Session isolation</strong>
+                <span>One terminal context per user, browser, or Telegram operator.</span>
+            </div>
+            <div>
+                <strong>Policy-first</strong>
+                <span>Authentication, allowlists, and audit-ready logging by default.</span>
+            </div>
+            <div>
+                <strong>Remote-native</strong>
+                <span>Designed for tunnels, mobile operators, and resilient WebSockets.</span>
+            </div>
+        </section>
+
+        <section class="platform section-pad" id="platform">
+            <div class="section-heading" data-reveal>
+                <div class="eyebrow">Platform</div>
+                <h2>A terminal bridge built for real operations, not demos.</h2>
+                <p>TeleCLI keeps the control surface lightweight while giving operators the primitives they need to act quickly and safely.</p>
+            </div>
+
+            <div class="bento-grid">
+                <article class="feature-card outer-shell span-large" data-reveal>
+                    <div class="inner-core">
+                        <span class="feature-kicker">01 / Browser console</span>
+                        <h3>Full web terminal with persistent session state.</h3>
+                        <p>Launch, resize, reset, and reconnect terminals through a responsive WebSocket UI that preserves context through mobile and tunnel interruptions.</p>
+                    </div>
+                </article>
+                <article class="feature-card outer-shell" data-reveal>
+                    <div class="inner-core">
+                        <span class="feature-kicker">02 / Telegram ops</span>
+                        <h3>Operate from chat.</h3>
+                        <p>Route commands, receive output, and manage sessions from Telegram when a browser is not the fastest surface.</p>
+                    </div>
+                </article>
+                <article class="feature-card outer-shell" data-reveal>
+                    <div class="inner-core">
+                        <span class="feature-kicker">03 / AI assist</span>
+                        <h3>Optional LLM proxy.</h3>
+                        <p>Let trusted local CLI providers summarize output, propose next steps, and monitor long-running command workflows.</p>
+                    </div>
+                </article>
+                <article class="feature-card outer-shell span-wide" data-reveal>
+                    <div class="inner-core code-panel">
+                        <span class="feature-kicker">04 / Configured by environment</span>
+                        <pre><code>AUTH_TOKEN=••••••
+ALLOWED_COMMANDS_ONLY=true
+TERMINAL_SHELL=/bin/bash
+AI_PROXY_ENABLED=false</code></pre>
+                    </div>
+                </article>
+            </div>
+        </section>
+
+        <section class="security section-pad" id="security">
+            <div class="section-heading narrow" data-reveal>
+                <div class="eyebrow">Security model</div>
+                <h2>Guardrails for machines that should never become public toys.</h2>
+            </div>
+            <div class="security-stack">
+                <div class="security-item" data-reveal>
+                    <span>Auth</span>
+                    <h3>Token-gated WebSocket access</h3>
+                    <p>Require an authentication token before attaching any browser client to a terminal session.</p>
+                </div>
+                <div class="security-item" data-reveal>
+                    <span>Policy</span>
+                    <h3>Command allowlisting</h3>
+                    <p>Restrict execution to approved commands when you need a narrow operational surface.</p>
+                </div>
+                <div class="security-item" data-reveal>
+                    <span>Audit</span>
+                    <h3>Structured logging</h3>
+                    <p>Capture operational events with rotation-ready logs that stay out of application code.</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="workflow section-pad" id="workflow">
+            <div class="workflow-card outer-shell" data-reveal>
+                <div class="inner-core workflow-inner">
+                    <div>
+                        <div class="eyebrow">Operational flow</div>
+                        <h2>From browser to bot to shell, every session stays traceable.</h2>
+                    </div>
+                    <ol class="steps">
+                        <li><span>01</span><strong>Authenticate</strong><p>Clients attach with a configured token and a generated session identity.</p></li>
+                        <li><span>02</span><strong>Execute</strong><p>Terminal input is routed to an isolated pexpect or tmux-backed session.</p></li>
+                        <li><span>03</span><strong>Observe</strong><p>Output streams back to browser and Telegram surfaces with reconnect handling.</p></li>
+                        <li><span>04</span><strong>Assist</strong><p>Optional AI proxy modes help interpret output without taking over policy.</p></li>
+                    </ol>
+                </div>
+            </div>
+        </section>
+
+        <section class="deploy section-pad" id="deploy">
+            <div class="deploy-copy" data-reveal>
+                <div class="eyebrow">Deploy your control plane</div>
+                <h2>Self-host TeleCLI behind the network boundary you trust.</h2>
+                <p>Run locally, behind a Cloudflare tunnel, or as part of your internal operations stack. The marketing site is served from Cloudflare Pages; your terminal runtime stays under your control.</p>
+            </div>
+            <div class="deploy-actions" data-reveal>
+                <a class="primary-button" href="https://github.com/andr-ca/telecli" rel="noreferrer" target="_blank">
+                    <span>Open repository</span>
+                    <span class="button-orb" aria-hidden="true">↗</span>
+                </a>
+                <a class="secondary-button" href="https://github.com/andr-ca/telecli#installation" rel="noreferrer" target="_blank">Read install guide</a>
+            </div>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <span>© 2026 TeleCLI</span>
+        <a href="https://github.com/andr-ca/telecli" rel="noreferrer" target="_blank">GitHub</a>
+    </footer>
+
+    <script src="main.js" defer></script>
+</body>
+
+</html>

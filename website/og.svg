@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">TeleCLI</title>
+  <desc id="desc">Secure terminal access from anywhere</desc>
+  <defs>
+    <radialGradient id="g1" cx="18%" cy="18%" r="70%">
+      <stop stop-color="#8d7cff" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#050505" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="g2" cx="86%" cy="20%" r="65%">
+      <stop stop-color="#73fbd3" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#050505" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#171a18"/>
+      <stop offset="1" stop-color="#070908"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="#050505"/>
+  <rect width="1200" height="630" fill="url(#g1)"/>
+  <rect width="1200" height="630" fill="url(#g2)"/>
+  <rect x="74" y="68" width="1052" height="494" rx="46" fill="rgba(255,255,255,0.06)" stroke="rgba(246,242,232,0.18)"/>
+  <rect x="90" y="84" width="1020" height="462" rx="36" fill="url(#panel)" stroke="rgba(246,242,232,0.12)"/>
+  <text x="126" y="178" fill="#b6ff6b" font-family="IBM Plex Mono, monospace" font-size="24" letter-spacing="8">PRIVATE TERMINAL RELAY</text>
+  <text x="126" y="312" fill="#f6f2e8" font-family="Space Grotesk, sans-serif" font-size="112" font-weight="700" letter-spacing="-8">TeleCLI</text>
+  <text x="130" y="388" fill="#a9a394" font-family="Space Grotesk, sans-serif" font-size="38">Secure command-line access, wherever work follows you.</text>
+  <rect x="760" y="152" width="258" height="246" rx="30" fill="rgba(5,5,5,0.68)" stroke="rgba(246,242,232,0.14)"/>
+  <text x="790" y="212" fill="#73fbd3" font-family="IBM Plex Mono, monospace" font-size="21">$ connect ops</text>
+  <text x="790" y="260" fill="#b6ff6b" font-family="IBM Plex Mono, monospace" font-size="21">✓ session ready</text>
+  <text x="790" y="308" fill="#ffd166" font-family="IBM Plex Mono, monospace" font-size="21">↳ policy check</text>
+  <rect x="790" y="344" width="24" height="34" rx="4" fill="#b6ff6b"/>
+</svg>
